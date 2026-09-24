@@ -8,10 +8,6 @@
   --accent-dim: #4c5a8f;
   --dot-empty: #3a3d4a;
   --dot-filled: #7c9cff;
-  --success: #4caf7d;
-  --fail: #d16565;
-  --attack-color: #e0954f;
-  --defend-color: #4c9fd1;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -67,6 +63,7 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--accent); }
 }
 
 .name-field { flex: 1 1 260px; }
+.race-field { flex: 0 0 160px; }
 .focus-field { flex: 0 0 160px; }
 
 .header-actions {
@@ -87,7 +84,32 @@ button {
 
 button:hover { background: var(--accent); }
 
+button.secondary {
+  background: transparent;
+  color: var(--text-dim);
+}
+
+button.secondary:hover {
+  background: var(--panel-border);
+  color: var(--text);
+}
+
 .dice-btn { padding: 6px 12px; font-size: 0.85rem; }
+
+.collapse-toggle {
+  padding: 4px 10px;
+  font-size: 0.9rem;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+
+.collapse-toggle.collapsed {
+  transform: rotate(-90deg);
+}
+
+.collapsible-body[hidden] {
+  display: none;
+}
 
 .sheet-body {
   display: grid;
@@ -146,6 +168,21 @@ button:hover { background: var(--accent); }
   text-align: center;
 }
 
+.attr-input-wrap {
+  position: relative;
+  display: block;
+}
+
+.attr-mod-mark {
+  position: absolute;
+  top: -6px;
+  right: -4px;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--accent);
+  cursor: default;
+}
+
 .attribute-row-header {
   margin-bottom: 2px;
 }
@@ -174,6 +211,20 @@ button:hover { background: var(--accent); }
   gap: 8px;
 }
 
+#combatStatsList {
+  margin-top: 2.8rem;
+}
+
+.armored-defense-calc {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.combat-stats-spacer {
+  height: 1.4rem;
+}
+
 .derived-row {
   display: flex;
   justify-content: space-between;
@@ -195,6 +246,12 @@ button:hover { background: var(--accent); }
   padding: 6px;
   font-size: 0.9rem;
   line-height: 1;
+}
+
+.right-column {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
 }
 
 .classes-list {
@@ -239,6 +296,12 @@ button:hover { background: var(--accent); }
   color: var(--text-dim);
 }
 
+.class-defy-line {
+  margin-top: 6px;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
 .dots-grid {
   display: grid;
   grid-template-columns: repeat(10, 14px);
@@ -261,64 +324,94 @@ button:hover { background: var(--accent); }
   border-color: var(--dot-filled);
 }
 
-.assign-header {
+.dot:disabled {
+  cursor: default;
+  opacity: 0.9;
+}
+
+.vitals-freeform-row {
   display: flex;
-  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.vitals-freeform-field {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.vitals-freeform-field input {
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 6px;
+}
+
+.vitals-list {
+  display: flex;
+  gap: 16px;
+}
+
+@media (max-width: 480px) {
+  .vitals-list { flex-direction: column; }
+}
+
+.vitals-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.vitals-row {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  margin: 10px 0 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--panel-border);
-  font-size: 0.75rem;
-  color: var(--text-dim);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
-}
-
-.assign-grid {
-  margin-bottom: 4px;
-}
-
-.assign-dot.assign-attack {
-  background: var(--attack-color);
-  border-color: var(--attack-color);
-}
-
-.assign-dot.assign-defend {
-  background: var(--defend-color);
-  border-color: var(--defend-color);
-}
-
-.targets-panel {
-  overflow-x: auto;
-}
-
-.targets-table-wrap {
-  overflow-x: auto;
-}
-
-.targets-table {
-  width: 100%;
-  border-collapse: collapse;
-  min-width: 720px;
-}
-
-.targets-table th, .targets-table td {
-  padding: 8px 10px;
-  border-bottom: 1px solid var(--panel-border);
+  row-gap: 4px;
+  column-gap: 6px;
   font-size: 0.85rem;
-  text-align: left;
 }
 
-.targets-table th { color: var(--text-dim); font-weight: 500; }
+.vitals-row .vitals-label {
+  flex: 1 1 100%;
+  font-weight: 600;
+}
 
-.targets-table .formula-cell {
+.vitals-subheader {
+  font-weight: 600;
+  font-size: 0.85rem;
+  color: var(--text);
+  margin-top: 6px;
+}
+
+.vitals-row-sub {
+  font-size: 0.75rem;
+  padding-left: 2ch;
+}
+
+.vitals-label {
+  color: var(--text);
+}
+
+.vitals-base, .vitals-total {
   color: var(--text-dim);
-  font-size: 0.78rem;
-  max-width: 320px;
+  font-size: 0.8rem;
+  white-space: nowrap;
 }
 
-.targets-table input[type="number"] {
-  width: 64px;
+.vitals-total {
+  color: var(--accent);
+  font-weight: 700;
+}
+
+.vitals-input {
+  width: 50px;
   background: var(--bg);
   border: 1px solid var(--panel-border);
   color: var(--text);
@@ -327,21 +420,196 @@ button:hover { background: var(--accent); }
   text-align: center;
 }
 
-.targets-table .total-cell {
+.weapons-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.weapons-tables {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
+@media (max-width: 960px) {
+  .weapons-tables { grid-template-columns: 1fr; }
+}
+
+.weapons-table-wrap {
+  overflow-x: auto;
+}
+
+.weapons-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 360px;
+}
+
+.weapons-table th, .weapons-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--panel-border);
+  font-size: 0.85rem;
+  text-align: left;
+}
+
+.weapons-table th { color: var(--text-dim); font-weight: 500; }
+
+.weapon-name-cell {
+  min-width: 160px;
+}
+
+.weapon-name-cell .weapon-name {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.weapon-name-cell .dots-grid {
+  grid-template-columns: repeat(10, 12px);
+  gap: 4px;
+  margin-bottom: 3px;
+}
+
+.weapon-name-cell .dot {
+  width: 12px;
+  height: 12px;
+}
+
+.weapon-target {
   font-weight: 700;
   color: var(--accent);
 }
 
-.roll-cell {
+.skills-tabs {
   display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.skills-tab {
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text-dim);
+  padding: 7px 14px;
+  border-radius: 999px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.skills-tab:hover {
+  color: var(--text);
+}
+
+.skills-tab.active {
+  background: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.skills-summary {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin-bottom: 14px;
+}
+
+.skills-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 14px;
+}
+
+.skills-list.skills-list-vertical {
+  display: flex;
+  flex-direction: column;
+  max-width: 420px;
+}
+
+.skill-box {
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.skill-box-header {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
+  margin-bottom: 8px;
   gap: 8px;
 }
 
-.roll-result {
-  font-size: 0.8rem;
-  min-width: 90px;
+.skill-name-wrap {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
 }
 
-.roll-result.success { color: var(--success); }
-.roll-result.fail { color: var(--fail); }
+.skill-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.skill-target {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.item-attribute {
+  font-size: 0.72rem;
+  font-weight: 400;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.skill-box .dots-grid {
+  margin-bottom: 6px;
+}
+
+.specials-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 14px;
+}
+
+.special-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.special-box .special-dot {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.special-text {
+  min-width: 0;
+}
+
+.special-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.special-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.special-description {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.35;
+}

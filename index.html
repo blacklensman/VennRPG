@@ -17,11 +17,16 @@
         Character Name
         <input type="text" id="charName" placeholder="Unnamed">
       </label>
+      <label class="race-field">
+        Race
+        <select id="raceSelect"></select>
+      </label>
       <label class="focus-field">
         Focus
         <select id="focusSelect"></select>
       </label>
       <div class="header-actions">
+        <button id="newCharacterBtn" type="button" class="secondary">New Character</button>
         <button id="saveBtn" type="button">Save Character</button>
         <button id="loadBtn" type="button">Load Character</button>
         <input type="file" id="loadInput" accept="application/json,.json" hidden>
@@ -43,33 +48,106 @@
         <span></span>
       </div>
       <div id="attributesList" class="attributes-list"></div>
-
-      <div id="derivedStatsList" class="derived-stats-list"></div>
+      <div id="combatStatsList" class="derived-stats-list"></div>
     </section>
 
-    <section class="panel classes-panel">
-      <h2>Classes</h2>
-      <div id="classesList" class="classes-list"></div>
-    </section>
+    <div class="right-column">
+      <section class="panel classes-panel">
+        <h2>Classes</h2>
+        <div id="classesList" class="classes-list"></div>
+      </section>
+
+      <section class="panel vitals-panel">
+        <h2>Vitals</h2>
+        <div class="vitals-freeform-row">
+          <label class="vitals-freeform-field">
+            Height
+            <input type="text" id="vitalsHeight">
+          </label>
+          <label class="vitals-freeform-field">
+            Weight
+            <input type="text" id="vitalsWeight">
+          </label>
+        </div>
+        <div id="vitalsList" class="vitals-list"></div>
+      </section>
+    </div>
 
   </main>
 
-  <section class="panel targets-panel">
-    <h2>Targets</h2>
-    <div class="targets-table-wrap">
-      <table class="targets-table">
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Formula</th>
-            <th>Equipment</th>
-            <th>Misc.</th>
-            <th>Total</th>
-            <th>Roll</th>
-          </tr>
-        </thead>
-        <tbody id="targetsBody"></tbody>
-      </table>
+  <section class="panel weapons-panel">
+    <div class="panel-title-row">
+      <h2>Weapons</h2>
+      <button type="button" class="collapse-toggle" id="weaponsCollapseToggle" aria-expanded="true">▾</button>
+    </div>
+    <div class="collapsible-body" id="weaponsBody">
+      <div id="weaponsTabs" class="skills-tabs"></div>
+      <div id="weaponsSummary" class="skills-summary"></div>
+      <div id="weaponsFocusSummary" class="skills-summary"></div>
+      <div class="weapons-tables">
+        <div class="weapons-table-group">
+          <h3 class="derived-stats-title">Melee Weapons</h3>
+          <div class="weapons-table-wrap">
+            <table class="weapons-table">
+              <thead>
+                <tr>
+                  <th>Weapon</th>
+                  <th>ROF</th>
+                  <th>Target</th>
+                  <th>B</th>
+                  <th>S</th>
+                  <th>P</th>
+                  <th>E</th>
+                </tr>
+              </thead>
+              <tbody id="meleeWeaponsBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="weapons-table-group">
+          <h3 class="derived-stats-title">Ranged Weapons</h3>
+          <div class="weapons-table-wrap">
+            <table class="weapons-table">
+              <thead>
+                <tr>
+                  <th>Weapon</th>
+                  <th>ROF</th>
+                  <th>Target</th>
+                  <th>B</th>
+                  <th>S</th>
+                  <th>P</th>
+                  <th>E</th>
+                </tr>
+              </thead>
+              <tbody id="rangedWeaponsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel skills-panel">
+    <div class="panel-title-row">
+      <h2>Skills</h2>
+      <button type="button" class="collapse-toggle" id="skillsCollapseToggle" aria-expanded="true">▾</button>
+    </div>
+    <div class="collapsible-body" id="skillsBody">
+      <div id="skillsTabs" class="skills-tabs"></div>
+      <div id="skillsSummary" class="skills-summary"></div>
+      <div id="skillsList" class="skills-list"></div>
+    </div>
+  </section>
+
+  <section class="panel specials-panel">
+    <div class="panel-title-row">
+      <h2>Specials</h2>
+      <button type="button" class="collapse-toggle" id="specialsCollapseToggle" aria-expanded="true">▾</button>
+    </div>
+    <div class="collapsible-body" id="specialsBody">
+      <div id="specialsSummary" class="skills-summary"></div>
+      <div id="specialsTierSummary" class="skills-summary"></div>
+      <div id="specialsList" class="specials-list"></div>
     </div>
   </section>
 
