@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VennRPG Character Sheet</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="src/style.css">
+</head>
+<body>
+<div class="sheet">
+
+  <header class="sheet-header">
+    <h1>VennRPG Character Sheet</h1>
+    <div class="header-row">
+      <label class="name-field">
+        Character Name
+        <input type="text" id="charName" placeholder="Unnamed">
+      </label>
+      <label class="focus-field">
+        Focus
+        <select id="focusSelect"></select>
+      </label>
+      <div class="header-actions">
+        <button id="saveBtn" type="button">Save Character</button>
+        <button id="loadBtn" type="button">Load Character</button>
+        <input type="file" id="loadInput" accept="application/json,.json" hidden>
+      </div>
+    </div>
+  </header>
+
+  <main class="sheet-body">
+
+    <section class="panel attributes-panel">
+      <div class="panel-title-row">
+        <h2>Attributes</h2>
+        <button id="rollAllBtn" type="button" class="dice-btn">🎲 Roll All</button>
+      </div>
+      <div class="attribute-row attribute-row-header">
+        <span></span>
+        <span class="col-label">Value</span>
+        <span class="col-label">Defy</span>
+        <span></span>
+      </div>
+      <div id="attributesList" class="attributes-list"></div>
+
+      <div id="derivedStatsList" class="derived-stats-list"></div>
+    </section>
+
+    <section class="panel classes-panel">
+      <h2>Classes</h2>
+      <div id="classesList" class="classes-list"></div>
+    </section>
+
+  </main>
+
+  <section class="panel targets-panel">
+    <h2>Targets</h2>
+    <div class="targets-table-wrap">
+      <table class="targets-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>Formula</th>
+            <th>Equipment</th>
+            <th>Misc.</th>
+            <th>Total</th>
+            <th>Roll</th>
+          </tr>
+        </thead>
+        <tbody id="targetsBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+
+<script src="src/data.js"></script>
+<script src="src/app.js"></script>
+</body>
+</html>
