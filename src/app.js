@@ -9,7 +9,7 @@ const {
   WEAPON_RANKS_MIN, WEAPON_RANKS_MAX, WEAPON_RANKS_ROWS, WEAPON_RANKS_PER_ROW,
   getFocusWeaponCapacity, isWeaponFocusEligible, rollFocusWeapons, addFocusWeapon, removeFocusWeapon,
   isWeaponEligibleForClass, weaponMatchesCharacter, getWeaponRate,
-  getWeaponClassSpend, getWeaponSpentRank, getWeaponTarget, toggleWeaponRankForClass,
+  getWeaponClassSpend, getWeaponSpentRank, getWeaponEffectiveRank, getWeaponTarget, toggleWeaponRankForClass,
   SKILLS, SKILL_RANKS_MIN, SKILL_RANKS_MAX, SKILL_RANKS_ROWS, SKILL_RANKS_PER_ROW,
   isSkillEligibleForClass, isSkillGeneral, isSkillForRace, pickSpendableClass,
   skillMatchesCharacter, getSkillRate, getSkillAutoMinRank,
@@ -17,10 +17,15 @@ const {
   SPECIALS, isSpecialEligible, isSpecialOwned, toggleSpecialForClass,
   getSpecialTierCount, getSpecialsOwnedCount, canAcquireSpecial,
   SPELLS, SPELL_SCHOOLS, hasSpellAccess, isSpellLearned, toggleSpellLearned,
+  getSpellSlotCount, getSpellSlotCountForRank, getSpellsLearnedCount, canLearnSpell,
   MIRACLES, MIRACLE_SCHOOLS, hasMiracleAccess, isMiracleLearned, toggleMiracleLearned,
+  getMiracleSlotCount, getMiracleSlotCountForRank, getMiraclesLearnedCount, canLearnMiracle,
   getClassPointsUsed, getClassPointsAvailable, getClassPointsTotal, getClassRankMultiplier,
   COMBAT_STAT_GROUP, getBaseDefense, getArmoredDefenseTotal, CASTING_STAT_GROUP, VITALS_STATS,
   STAMINA_COST_ITEMS, getStaminaCostTotal,
+  EQUIPMENT, EQUIPMENT_TYPES, getEquipmentQuantity, getEquipmentOwnedEntries,
+  addEquipmentItem, removeEquipmentItem, getEquipmentSpentGT,
+  COINAGE, getWealthInGT, getEquipmentRemainingGT,
   rollAttribute, createDefaultCharacter, clamp, roundUp,
 } = window.VennRPG;
 
@@ -55,6 +60,7 @@ if (storedCharacter) {
 }
 let activeSkillsTab = character.focus;
 let activeWeaponsTab = character.focus;
+let activeEquipmentTab = EQUIPMENT_TYPES[0];
 
 const el = {
   charName: document.getElementById('charName'),
@@ -69,6 +75,11 @@ const el = {
   vitalsList: document.getElementById('vitalsList'),
   weaponsBody: document.getElementById('weaponsBody'),
   weaponsCollapseToggle: document.getElementById('weaponsCollapseToggle'),
+  buyWeaponsBtn: document.getElementById('buyWeaponsBtn'),
+  ownedMeleeWeaponsBody: document.getElementById('ownedMeleeWeaponsBody'),
+  ownedRangedWeaponsBody: document.getElementById('ownedRangedWeaponsBody'),
+  weaponsModal: document.getElementById('weaponsModal'),
+  weaponsModalClose: document.getElementById('weaponsModalClose'),
   weaponsTabs: document.getElementById('weaponsTabs'),
   weaponsSummary: document.getElementById('weaponsSummary'),
   weaponsFocusSummary: document.getElementById('weaponsFocusSummary'),
@@ -82,21 +93,38 @@ const el = {
   skillsList: document.getElementById('skillsList'),
   specialsBody: document.getElementById('specialsBody'),
   specialsCollapseToggle: document.getElementById('specialsCollapseToggle'),
+  buySpecialsBtn: document.getElementById('buySpecialsBtn'),
+  specialsOwnedList: document.getElementById('specialsOwnedList'),
+  specialsModal: document.getElementById('specialsModal'),
+  specialsModalClose: document.getElementById('specialsModalClose'),
   specialsSummary: document.getElementById('specialsSummary'),
   specialsTierSummary: document.getElementById('specialsTierSummary'),
   specialsList: document.getElementById('specialsList'),
   spellsPanel: document.getElementById('spellsPanel'),
   spellsBody: document.getElementById('spellsBody'),
   spellsCollapseToggle: document.getElementById('spellsCollapseToggle'),
+  spellsSummary: document.getElementById('spellsSummary'),
   spellsList: document.getElementById('spellsList'),
   miraclesPanel: document.getElementById('miraclesPanel'),
   miraclesBody: document.getElementById('miraclesBody'),
   miraclesCollapseToggle: document.getElementById('miraclesCollapseToggle'),
+  miraclesSummary: document.getElementById('miraclesSummary'),
   miraclesList: document.getElementById('miraclesList'),
   newCharacterBtn: document.getElementById('newCharacterBtn'),
   saveBtn: document.getElementById('saveBtn'),
   loadBtn: document.getElementById('loadBtn'),
   loadInput: document.getElementById('loadInput'),
+  coinageList: document.getElementById('coinageList'),
+  equipmentBody: document.getElementById('equipmentBody'),
+  equipmentCollapseToggle: document.getElementById('equipmentCollapseToggle'),
+  buyEquipmentBtn: document.getElementById('buyEquipmentBtn'),
+  equipmentSummary: document.getElementById('equipmentSummary'),
+  equipmentOwnedList: document.getElementById('equipmentOwnedList'),
+  equipmentModal: document.getElementById('equipmentModal'),
+  equipmentModalClose: document.getElementById('equipmentModalClose'),
+  equipmentWealthSummary: document.getElementById('equipmentWealthSummary'),
+  equipmentTabs: document.getElementById('equipmentTabs'),
+  equipmentModalList: document.getElementById('equipmentModalList'),
 };
 
 function renderRaceOptions() {
@@ -249,6 +277,188 @@ function renderCombatStats() {
   el.combatStatsList.appendChild(spacer);
 
   CASTING_STAT_GROUP.stats.forEach((stat) => appendDerivedRow(el.combatStatsList, stat));
+}
+
+// Trims float noise (e.g. 12.000000000000002 from repeated 0.1/0.01 coin
+// additions) without padding whole numbers with trailing zeros.
+function formatGT(n) {
+  const rounded = Math.round(n * 100) / 100;
+  return rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function capitalize(s) {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// Coinage is a simple player-managed wallet — free-entry amounts, not tied
+// to any point economy — that funds Equipment purchases below.
+function renderCoinage() {
+  el.coinageList.innerHTML = '';
+
+  const goldColumn = document.createElement('div');
+  goldColumn.className = 'coinage-column';
+  const otherColumn = document.createElement('div');
+  otherColumn.className = 'coinage-column';
+
+  COINAGE.forEach((coin) => {
+    const row = document.createElement('div');
+    row.className = 'coinage-row';
+
+    const label = document.createElement('span');
+    label.className = 'coinage-label';
+    label.textContent = `${coin.name} (${coin.id})`;
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'coinage-input';
+    input.min = '0';
+    input.value = character.coinage[coin.id];
+    input.addEventListener('change', () => {
+      character.coinage[coin.id] = Math.max(0, parseFloat(input.value) || 0);
+      renderEquipmentPanel();
+      if (el.equipmentModal.open) renderEquipmentModal();
+    });
+
+    row.appendChild(label);
+    row.appendChild(input);
+    (coin.name.startsWith('Gold') ? goldColumn : otherColumn).appendChild(row);
+  });
+
+  el.coinageList.appendChild(goldColumn);
+  el.coinageList.appendChild(otherColumn);
+}
+
+// Main-page Equipment panel: just the "Buy Equipment" button plus whatever
+// has actually been purchased — the shop itself lives in the popup below.
+function renderEquipmentPanel() {
+  const wealth = getWealthInGT(character);
+  const spent = getEquipmentSpentGT(character);
+  const remaining = wealth - spent;
+  el.equipmentSummary.textContent = `Wealth: ${formatGT(wealth)} GT — Spent: ${formatGT(spent)} GT — Remaining: ${formatGT(remaining)} GT`;
+
+  el.equipmentOwnedList.innerHTML = '';
+  const entries = getEquipmentOwnedEntries(character);
+  if (entries.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'equipment-empty';
+    empty.textContent = 'No equipment purchased yet.';
+    el.equipmentOwnedList.appendChild(empty);
+    return;
+  }
+  entries.forEach(({ item, quantity }) => {
+    const row = document.createElement('div');
+    row.className = 'equipment-owned-row';
+
+    const name = document.createElement('span');
+    name.className = 'equipment-owned-name';
+    name.textContent = item.name;
+
+    const qty = document.createElement('span');
+    qty.className = 'equipment-owned-qty';
+    qty.textContent = `x${quantity}`;
+
+    const cost = document.createElement('span');
+    cost.className = 'equipment-owned-cost';
+    cost.textContent = `${formatGT(item.cost * quantity)} GT`;
+
+    row.appendChild(name);
+    row.appendChild(qty);
+    row.appendChild(cost);
+    el.equipmentOwnedList.appendChild(row);
+  });
+}
+
+// The purchase popup: tabs by fantasy_eq.csv category, a running wealth/
+// spent/remaining total (spend draws from the same coinage as the main
+// page), and a +/- stepper per item.
+function renderEquipmentModal() {
+  const wealth = getWealthInGT(character);
+  const spent = getEquipmentSpentGT(character);
+  const remaining = wealth - spent;
+  el.equipmentWealthSummary.innerHTML = '';
+  el.equipmentWealthSummary.appendChild(document.createTextNode(`Wealth: ${formatGT(wealth)} GT — Spent: ${formatGT(spent)} GT — Remaining: `));
+  const remainingSpan = document.createElement('span');
+  if (remaining < 0) remainingSpan.className = 'equipment-remaining-negative';
+  remainingSpan.textContent = `${formatGT(remaining)} GT`;
+  el.equipmentWealthSummary.appendChild(remainingSpan);
+
+  el.equipmentTabs.innerHTML = '';
+  EQUIPMENT_TYPES.forEach((type) => {
+    const tab = document.createElement('button');
+    tab.type = 'button';
+    tab.className = 'skills-tab' + (type === activeEquipmentTab ? ' active' : '');
+    tab.textContent = capitalize(type);
+    tab.addEventListener('click', () => {
+      activeEquipmentTab = type;
+      renderEquipmentModal();
+    });
+    el.equipmentTabs.appendChild(tab);
+  });
+
+  el.equipmentModalList.innerHTML = '';
+  EQUIPMENT.filter((item) => item.type === activeEquipmentTab).forEach((item) => {
+    const row = document.createElement('div');
+    row.className = 'equipment-item-row';
+
+    const textWrap = document.createElement('div');
+    textWrap.className = 'equipment-item-text';
+
+    const nameRow = document.createElement('div');
+    nameRow.className = 'equipment-item-name-row';
+    const name = document.createElement('span');
+    name.className = 'equipment-item-name';
+    name.textContent = item.name;
+    const cost = document.createElement('span');
+    cost.className = 'equipment-item-cost';
+    cost.textContent = `${formatGT(item.cost)} GT`;
+    const weight = document.createElement('span');
+    weight.className = 'equipment-item-weight';
+    weight.textContent = `${item.weight} lb`;
+    nameRow.appendChild(name);
+    nameRow.appendChild(cost);
+    nameRow.appendChild(weight);
+    textWrap.appendChild(nameRow);
+
+    const description = document.createElement('div');
+    description.className = 'equipment-item-description';
+    description.textContent = item.description;
+    textWrap.appendChild(description);
+
+    const stepper = document.createElement('div');
+    stepper.className = 'equipment-qty-stepper';
+
+    const minusBtn = document.createElement('button');
+    minusBtn.type = 'button';
+    minusBtn.textContent = '−';
+    const quantity = getEquipmentQuantity(character, item);
+    minusBtn.disabled = quantity <= 0;
+    minusBtn.addEventListener('click', () => {
+      removeEquipmentItem(character, item);
+      renderEquipmentModal();
+      renderEquipmentPanel();
+    });
+
+    const qtyValue = document.createElement('span');
+    qtyValue.className = 'equipment-qty-value';
+    qtyValue.textContent = String(quantity);
+
+    const plusBtn = document.createElement('button');
+    plusBtn.type = 'button';
+    plusBtn.textContent = '+';
+    plusBtn.addEventListener('click', () => {
+      addEquipmentItem(character, item);
+      renderEquipmentModal();
+      renderEquipmentPanel();
+    });
+
+    stepper.appendChild(minusBtn);
+    stepper.appendChild(qtyValue);
+    stepper.appendChild(plusBtn);
+
+    row.appendChild(textWrap);
+    row.appendChild(stepper);
+    el.equipmentModalList.appendChild(row);
+  });
 }
 
 // Everything that depends on attributes/focus/race (but not class dots or
@@ -499,58 +709,92 @@ function renderWeaponRankDots(parent, weapon, category) {
   }
 }
 
+// Read-only version of renderWeaponRankDots for the main-page owned-weapons
+// table — just shows filled dots up to the current rank, nothing clickable
+// (all buying happens in the Buy Weapon Skills popup).
+function renderWeaponRankDotsReadOnly(parent, weapon, category) {
+  const effectiveRank = getWeaponEffectiveRank(character, category, weapon.name);
+  for (let r = 0; r < WEAPON_RANKS_ROWS; r += 1) {
+    const grid = document.createElement('div');
+    grid.className = 'dots-grid';
+    for (let c = 0; c < WEAPON_RANKS_PER_ROW; c += 1) {
+      const dotIndex = r * WEAPON_RANKS_PER_ROW + c + 1;
+      const dot = document.createElement('span');
+      dot.className = 'dot dot-static' + (dotIndex <= effectiveRank ? ' filled' : '');
+      grid.appendChild(dot);
+    }
+    parent.appendChild(grid);
+  }
+}
+
+function buildWeaponRow(weapon, category, interactive) {
+  const row = document.createElement('tr');
+
+  const nameCell = document.createElement('td');
+  nameCell.className = 'weapon-name-cell';
+  const nameLabel = document.createElement('div');
+  nameLabel.className = 'weapon-name';
+  nameLabel.title = formatWeaponMeta(weapon, category);
+  const nameText = document.createElement('span');
+  nameText.textContent = weapon.name;
+  nameLabel.appendChild(nameText);
+  if (weapon.attribute.length > 0) {
+    const attr = document.createElement('span');
+    attr.className = 'item-attribute';
+    attr.textContent = weapon.attribute.join(' / ');
+    nameLabel.appendChild(attr);
+  }
+  nameCell.appendChild(nameLabel);
+
+  if (interactive) renderWeaponRankDots(nameCell, weapon, category);
+  else renderWeaponRankDotsReadOnly(nameCell, weapon, category);
+
+  const rofCell = document.createElement('td');
+  rofCell.textContent = weapon.rof;
+
+  const targetCell = document.createElement('td');
+  targetCell.className = 'weapon-target';
+  targetCell.textContent = getWeaponTarget(character, category, weapon.name);
+  targetCell.title = weaponMatchesCharacter(character, category, weapon.name)
+    ? `Base Attack + (${getWeaponRate(character, category, weapon.name)} * rank) — Focus starting weapon`
+    : `Base Attack + (${getWeaponRate(character, category, weapon.name)} * rank)`;
+
+  const bCell = document.createElement('td');
+  bCell.textContent = weapon.blunt;
+  const sCell = document.createElement('td');
+  sCell.textContent = weapon.slash;
+  const pCell = document.createElement('td');
+  pCell.textContent = weapon.pierce;
+  const eCell = document.createElement('td');
+  eCell.textContent = weapon.energy;
+
+  row.appendChild(nameCell);
+  row.appendChild(rofCell);
+  row.appendChild(targetCell);
+  row.appendChild(bCell);
+  row.appendChild(sCell);
+  row.appendChild(pCell);
+  row.appendChild(eCell);
+  return row;
+}
+
 function renderWeaponsTable(tbody, weapons, category) {
   tbody.innerHTML = '';
   const eligible = weapons.filter((weapon) => isWeaponEligibleForClass(character, category, weapon.name, activeWeaponsTab)).sort(byName);
-  eligible.forEach((weapon) => {
-    const row = document.createElement('tr');
+  eligible.forEach((weapon) => tbody.appendChild(buildWeaponRow(weapon, category, true)));
+}
 
-    const nameCell = document.createElement('td');
-    nameCell.className = 'weapon-name-cell';
-    const nameLabel = document.createElement('div');
-    nameLabel.className = 'weapon-name';
-    nameLabel.title = formatWeaponMeta(weapon, category);
-    const nameText = document.createElement('span');
-    nameText.textContent = weapon.name;
-    nameLabel.appendChild(nameText);
-    if (weapon.attribute.length > 0) {
-      const attr = document.createElement('span');
-      attr.className = 'item-attribute';
-      attr.textContent = weapon.attribute.join(' / ');
-      nameLabel.appendChild(attr);
-    }
-    nameCell.appendChild(nameLabel);
+// Main-page Weapons panel: only weapons with at least 1 rank (purchased or a
+// drawn Focus starting weapon) — the full shop lives in the popup above.
+function renderOwnedWeaponsTable(tbody, weapons, category) {
+  tbody.innerHTML = '';
+  const owned = weapons.filter((weapon) => getWeaponEffectiveRank(character, category, weapon.name) >= 1).sort(byName);
+  owned.forEach((weapon) => tbody.appendChild(buildWeaponRow(weapon, category, false)));
+}
 
-    renderWeaponRankDots(nameCell, weapon, category);
-
-    const rofCell = document.createElement('td');
-    rofCell.textContent = weapon.rof;
-
-    const targetCell = document.createElement('td');
-    targetCell.className = 'weapon-target';
-    targetCell.textContent = getWeaponTarget(character, category, weapon.name);
-    targetCell.title = weaponMatchesCharacter(character, category, weapon.name)
-      ? `Base Attack + (${getWeaponRate(character, category, weapon.name)} * rank) — Focus starting weapon`
-      : `Base Attack + (${getWeaponRate(character, category, weapon.name)} * rank)`;
-
-    const bCell = document.createElement('td');
-    bCell.textContent = weapon.blunt;
-    const sCell = document.createElement('td');
-    sCell.textContent = weapon.slash;
-    const pCell = document.createElement('td');
-    pCell.textContent = weapon.pierce;
-    const eCell = document.createElement('td');
-    eCell.textContent = weapon.energy;
-
-    row.appendChild(nameCell);
-    row.appendChild(rofCell);
-    row.appendChild(targetCell);
-    row.appendChild(bCell);
-    row.appendChild(sCell);
-    row.appendChild(pCell);
-    row.appendChild(eCell);
-    tbody.appendChild(row);
-  });
+function renderOwnedWeapons() {
+  renderOwnedWeaponsTable(el.ownedMeleeWeaponsBody, MELEE_WEAPONS, 'melee');
+  renderOwnedWeaponsTable(el.ownedRangedWeaponsBody, RANGED_WEAPONS, 'ranged');
 }
 
 function renderWeapons() {
@@ -571,6 +815,7 @@ function renderWeapons() {
 
   renderWeaponsTable(el.meleeWeaponsBody, MELEE_WEAPONS, 'melee');
   renderWeaponsTable(el.rangedWeaponsBody, RANGED_WEAPONS, 'ranged');
+  renderOwnedWeapons();
 }
 
 // Specials require the character's current Focus or Race to be listed —
@@ -635,20 +880,80 @@ function renderSpecials() {
     box.appendChild(textWrap);
     el.specialsList.appendChild(box);
   });
+
+  renderOwnedSpecials();
 }
 
-// Spells are a reference grimoire, not purchased — every spell is visible,
-// grouped by school, once the character has 1+ ranks in Mage (regardless of
-// current Focus). Otherwise the whole panel stays hidden.
+// Main-page Specials panel: only what's actually been acquired (read-only —
+// all buying happens in the Buy Specials popup above). A special stays
+// listed here even if a later Focus/Race change makes it ineligible to
+// re-acquire, since it was already bought and paid for.
+function renderOwnedSpecials() {
+  el.specialsOwnedList.innerHTML = '';
+  const owned = SPECIALS.filter((special) => isSpecialOwned(character, special)).sort(byName);
+  if (owned.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'equipment-empty';
+    empty.textContent = 'No specials acquired yet.';
+    el.specialsOwnedList.appendChild(empty);
+    return;
+  }
+  owned.forEach((special) => {
+    const box = document.createElement('div');
+    box.className = 'special-box';
+
+    const dot = document.createElement('span');
+    dot.className = 'dot special-dot dot-static filled';
+
+    const textWrap = document.createElement('div');
+    textWrap.className = 'special-text';
+    const nameRow = document.createElement('div');
+    nameRow.className = 'special-name-row';
+    const name = document.createElement('span');
+    name.className = 'special-name';
+    name.textContent = special.name;
+    nameRow.appendChild(name);
+    if (special.staminaCost > 0) {
+      const cost = document.createElement('span');
+      cost.className = 'item-attribute';
+      cost.textContent = `${special.staminaCost} stamina/use`;
+      nameRow.appendChild(cost);
+    }
+    const description = document.createElement('div');
+    description.className = 'special-description';
+    description.textContent = special.description;
+    textWrap.appendChild(nameRow);
+    textWrap.appendChild(description);
+
+    box.appendChild(dot);
+    box.appendChild(textWrap);
+    el.specialsOwnedList.appendChild(box);
+  });
+}
+
 // Shared by Spells (Mage) and Miracles (Priest): a reference grimoire, not
-// purchased — grouped by school, with a free learned/not-learned toggle per
-// entry. The whole panel hides until `hasAccess(character)` is true.
+// purchased from the shared point pool — each class rank instead grants one
+// learnable-entry slot (see getSlotCount/getLearnedCount/canLearn). The
+// whole panel hides until `hasAccess(character)` is true.
 function renderGrimoire(opts) {
-  const { panelEl, listEl, entries, schools, hasAccess, isLearned, toggleLearned, rerender } = opts;
+  const {
+    panelEl, summaryEl, listEl, entries, schools, className,
+    hasAccess, isLearned, toggleLearned, getSlotCount, getLearnedCount, canLearn, rerender,
+  } = opts;
 
   panelEl.hidden = !hasAccess(character);
+  summaryEl.textContent = '';
   listEl.innerHTML = '';
   if (panelEl.hidden) return;
+
+  const slots = getSlotCount(character);
+  const learnedCount = getLearnedCount(character);
+  const bonusSpecialName = className === 'Spell' ? 'Extra Spell' : 'Blessing of Miracles';
+  const rankLabel = className === 'Spell' ? 'Mage' : 'Priest';
+  const bonusSpecial = SPECIALS.find((s) => s.name === bonusSpecialName);
+  const hasBonus = bonusSpecial && isSpecialOwned(character, bonusSpecial);
+  const slotsNote = hasBonus ? `1+ per ${rankLabel} rank, +1 more per rank after ${bonusSpecialName}` : `1 per ${rankLabel} rank`;
+  summaryEl.textContent = `${className} slots — Known: ${learnedCount} / ${slots} (${slotsNote})`;
 
   schools.forEach((school) => {
     const title = document.createElement('h3');
@@ -661,13 +966,20 @@ function renderGrimoire(opts) {
       box.className = 'spell-box';
 
       const learned = isLearned(character, entry);
+      const canAcquire = canLearn(character);
       const dotBtn = document.createElement('button');
       dotBtn.type = 'button';
       dotBtn.className = 'dot spell-dot' + (learned ? ' filled' : '');
-      dotBtn.title = learned ? `Forget ${entry.name}` : `Mark ${entry.name} as learned`;
+      dotBtn.disabled = !learned && !canAcquire;
+      dotBtn.title = learned
+        ? `Forget ${entry.name}`
+        : canAcquire
+          ? `Learn ${entry.name} (uses 1 of ${slots} ${className.toLowerCase()} slots)`
+          : `No ${className.toLowerCase()} slots available (${learnedCount}/${slots} known)`;
       dotBtn.addEventListener('click', () => {
         toggleLearned(character, entry);
         rerender();
+        renderClasses();
       });
 
       const textWrap = document.createElement('div');
@@ -715,12 +1027,17 @@ function renderGrimoire(opts) {
 function renderSpells() {
   renderGrimoire({
     panelEl: el.spellsPanel,
+    summaryEl: el.spellsSummary,
     listEl: el.spellsList,
     entries: SPELLS,
     schools: SPELL_SCHOOLS,
+    className: 'Spell',
     hasAccess: hasSpellAccess,
     isLearned: isSpellLearned,
     toggleLearned: toggleSpellLearned,
+    getSlotCount: getSpellSlotCount,
+    getLearnedCount: getSpellsLearnedCount,
+    canLearn: canLearnSpell,
     rerender: renderSpells,
   });
 }
@@ -728,12 +1045,17 @@ function renderSpells() {
 function renderMiracles() {
   renderGrimoire({
     panelEl: el.miraclesPanel,
+    summaryEl: el.miraclesSummary,
     listEl: el.miraclesList,
     entries: MIRACLES,
     schools: MIRACLE_SCHOOLS,
+    className: 'Miracle',
     hasAccess: hasMiracleAccess,
     isLearned: isMiracleLearned,
     toggleLearned: toggleMiracleLearned,
+    getSlotCount: getMiracleSlotCount,
+    getLearnedCount: getMiraclesLearnedCount,
+    canLearn: canLearnMiracle,
     rerender: renderMiracles,
   });
 }
@@ -909,6 +1231,16 @@ function renderClasses() {
     const pointsUsed = getClassPointsUsed(character, cls);
     const rankMultiplier = getClassRankMultiplier(character);
     const minRanksForSpend = Math.ceil(pointsUsed / rankMultiplier);
+    // Mage/Priest ranks each hold Spell/Miracle slots — normally 1:1, but
+    // "Extra Spell"/"Blessing of Miracles" add bonus slots for ranks gained
+    // after acquiring them, so slot count isn't linear with rank. Simulate
+    // the slot count at the candidate target rank rather than a fixed floor.
+    const grimoireLearnedCount = cls === 'Mage' ? getSpellsLearnedCount(character)
+      : cls === 'Priest' ? getMiraclesLearnedCount(character)
+      : 0;
+    const getGrimoireSlotsForRank = cls === 'Mage' ? (r) => getSpellSlotCountForRank(character, r)
+      : cls === 'Priest' ? (r) => getMiracleSlotCountForRank(character, r)
+      : () => Infinity;
     for (let row = 0; row < CLASS_DOTS_ROWS; row += 1) {
       const grid = document.createElement('div');
       grid.className = 'dots-grid';
@@ -920,10 +1252,14 @@ function renderClasses() {
         dotBtn.className = 'dot' + (current >= dotIndex ? ' filled' : '');
         const isDecrement = dotIndex <= current;
         const targetValue = current === dotIndex ? dotIndex - 1 : dotIndex;
-        const locked = isDecrement && targetValue < minRanksForSpend;
+        const breaksSpend = isDecrement && targetValue < minRanksForSpend;
+        const breaksGrimoire = isDecrement && getGrimoireSlotsForRank(targetValue) < grimoireLearnedCount;
+        const locked = breaksSpend || breaksGrimoire;
         dotBtn.disabled = locked;
         dotBtn.title = locked
-          ? `Can't reduce ${cls} below ${minRanksForSpend} rank${minRanksForSpend === 1 ? '' : 's'} while ${pointsUsed} point${pointsUsed === 1 ? ' is' : 's are'} spent`
+          ? (breaksSpend
+            ? `Can't reduce ${cls} below ${minRanksForSpend} rank${minRanksForSpend === 1 ? '' : 's'} while ${pointsUsed} point${pointsUsed === 1 ? ' is' : 's are'} spent`
+            : `Can't reduce ${cls} to ${targetValue} rank${targetValue === 1 ? '' : 's'} while ${grimoireLearnedCount} ${cls === 'Mage' ? 'spell' : 'miracle'}${grimoireLearnedCount === 1 ? ' is' : 's are'} known`)
           : `Set ${cls} to ${dotIndex}`;
         dotBtn.addEventListener('click', () => {
           character.classDots[cls] = clamp(targetValue, CLASS_DOTS_MIN, CLASS_DOTS_MAX);
@@ -933,7 +1269,10 @@ function renderClasses() {
             activeWeaponsTab = cls;
           }
           refreshPointsPanels();
-          if (grew) el.skillsPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          if (grew) {
+            const scrollTarget = cls === 'Mage' ? el.spellsPanel : cls === 'Priest' ? el.miraclesPanel : el.skillsPanel;
+            scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
         });
         grid.appendChild(dotBtn);
       }
@@ -957,6 +1296,8 @@ function renderAll() {
   renderAttributes();
   renderClasses();
   renderCombatStats();
+  renderCoinage();
+  renderEquipmentPanel();
   renderSkills();
   renderWeapons();
   renderSpecials();
@@ -979,6 +1320,34 @@ setupCollapsible(el.skillsCollapseToggle, el.skillsBody);
 setupCollapsible(el.specialsCollapseToggle, el.specialsBody);
 setupCollapsible(el.spellsCollapseToggle, el.spellsBody);
 setupCollapsible(el.miraclesCollapseToggle, el.miraclesBody);
+setupCollapsible(el.equipmentCollapseToggle, el.equipmentBody);
+
+el.buyEquipmentBtn.addEventListener('click', () => {
+  renderEquipmentModal();
+  el.equipmentModal.showModal();
+});
+
+el.equipmentModalClose.addEventListener('click', () => {
+  el.equipmentModal.close();
+});
+
+el.buyWeaponsBtn.addEventListener('click', () => {
+  renderWeapons();
+  el.weaponsModal.showModal();
+});
+
+el.weaponsModalClose.addEventListener('click', () => {
+  el.weaponsModal.close();
+});
+
+el.buySpecialsBtn.addEventListener('click', () => {
+  renderSpecials();
+  el.specialsModal.showModal();
+});
+
+el.specialsModalClose.addEventListener('click', () => {
+  el.specialsModal.close();
+});
 
 el.charName.addEventListener('change', () => {
   character.name = el.charName.value;
@@ -1103,14 +1472,34 @@ function normalizeLoadedCharacter(loaded) {
     result.specialSpend[s.name] = normalizeLedgerSpend(loaded.specialSpend, s.name, result.classDots, 0, 1);
   });
 
+  // Rank at which "Extra Spell"/"Blessing of Miracles" was acquired, needed
+  // by getSpellSlotCount/getMiracleSlotCount below — must be set before
+  // computing slot counts.
+  result.extraSpellBaseRank = Number.isFinite(loaded.extraSpellBaseRank)
+    ? clamp(loaded.extraSpellBaseRank, CLASS_DOTS_MIN, CLASS_DOTS_MAX) : 0;
+  result.extraMiracleBaseRank = Number.isFinite(loaded.extraMiracleBaseRank)
+    ? clamp(loaded.extraMiracleBaseRank, CLASS_DOTS_MIN, CLASS_DOTS_MAX) : 0;
+
+  // Clamp to the current Mage/Priest slot count (same philosophy as
+  // normalizeLedgerSpend above) in case ranks were reduced since this was
+  // saved — slot count accounts for the "Extra Spell"/"Blessing of Miracles"
+  // bonus, not just raw rank.
   result.spellsLearned = {};
+  let spellSlotsLeft = getSpellSlotCount(result);
   SPELLS.forEach((s) => {
-    result.spellsLearned[s.id] = !!(loaded.spellsLearned && loaded.spellsLearned[s.id]);
+    const wasLearned = !!(loaded.spellsLearned && loaded.spellsLearned[s.id]);
+    const keep = wasLearned && spellSlotsLeft > 0;
+    if (keep) spellSlotsLeft -= 1;
+    result.spellsLearned[s.id] = keep;
   });
 
   result.miraclesLearned = {};
+  let miracleSlotsLeft = getMiracleSlotCount(result);
   MIRACLES.forEach((m) => {
-    result.miraclesLearned[m.id] = !!(loaded.miraclesLearned && loaded.miraclesLearned[m.id]);
+    const wasLearned = !!(loaded.miraclesLearned && loaded.miraclesLearned[m.id]);
+    const keep = wasLearned && miracleSlotsLeft > 0;
+    if (keep) miracleSlotsLeft -= 1;
+    result.miraclesLearned[m.id] = keep;
   });
 
   result.weaponSpend = { melee: {}, ranged: {} };
@@ -1135,6 +1524,23 @@ function normalizeLoadedCharacter(loaded) {
   }
 
   result.armorValue = Number.isFinite(loaded.armorValue) ? loaded.armorValue : base.armorValue;
+
+  result.coinage = { ...base.coinage };
+  COINAGE.forEach((coin) => {
+    const v = loaded.coinage && loaded.coinage[coin.id];
+    if (Number.isFinite(v)) result.coinage[coin.id] = Math.max(0, v);
+  });
+
+  result.equipmentOwned = {};
+  const equipmentByName = new Map(EQUIPMENT.map((item) => [item.name, item]));
+  if (loaded.equipmentOwned && typeof loaded.equipmentOwned === 'object') {
+    Object.keys(loaded.equipmentOwned).forEach((name) => {
+      const v = loaded.equipmentOwned[name];
+      if (equipmentByName.has(name) && Number.isFinite(v) && v > 0) {
+        result.equipmentOwned[name] = Math.floor(v);
+      }
+    });
+  }
 
   result.vitals = { ...base.vitals };
   if (typeof (loaded.vitals && loaded.vitals.height) === 'string') result.vitals.height = loaded.vitals.height;

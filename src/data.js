@@ -753,7 +753,9 @@ Poison Resistance,Shrug off many common toxins and bad drink,Constitution,,dwarf
 Instant Cover,Cover short distances at a burst of speed,5,fighter;thief,
 Steady Hands,Perform delicate work while under stress or in motion,5,thief,halfling,
 War Mage,You know the power level of magics on the battlefield,5,Mage,
-Area Effect,You may spend some of your ranks to effect a 5x5 area and reduce damage dice,0,mage;cleric,`;
+Area Effect,You may spend some of your ranks to effect a 5x5 area and reduce damage dice,0,mage;priest,
+Extra Spell,You select 1 additional spell each level after selecting this ability,0,mage
+Blessing of Miracles,You select 1 additional miracle each level after selecting this ability,0,priest`;
 
 function parseSpecialFields(fields) {
   if (fields.length > 5 && fields[fields.length - 1] === '') {
@@ -828,6 +830,13 @@ function toggleSpecialForClass(character, special, cls) {
   if (!owned && !canAcquireSpecial(character)) return;
   const target = owned ? 0 : 1;
   setLedgerRankForClass(character.specialSpend, special.name, cls, target, getClassPointsAvailable(character, cls));
+  // "Extra Spell"/"Blessing of Miracles" grant +1 grimoire slot for every
+  // Mage/Priest dot gained AFTER the special is acquired (not retroactive) —
+  // record the rank at the moment ownership actually starts.
+  if (!owned && isSpecialOwned(character, special)) {
+    if (special.name === 'Extra Spell') character.extraSpellBaseRank = character.classDots.Mage || 0;
+    else if (special.name === 'Blessing of Miracles') character.extraMiracleBaseRank = character.classDots.Priest || 0;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -964,21 +973,49 @@ const SPELLS = parseCsvWithHeader(SPELLS_CSV).map((r) => ({
 
 const SPELL_SCHOOLS = [...new Set(SPELLS.map((s) => s.school))].sort();
 
-// Spells aren't purchased — every spell is visible once 1+ ranks are in
-// Mage, regardless of current Focus.
+// Spells aren't purchased with the shared class-point pool — instead every
+// Mage rank grants exactly one learnable-spell slot. Every spell is visible
+// once 1+ ranks are in Mage, regardless of current Focus, but only as many
+// can be *known* at once as Mage ranks allow.
 function hasSpellAccess(character) {
   return (character.classDots.Mage || 0) >= 1;
 }
 
-// Learning a spell is a free toggle (no point cost, unlike Skills/Weapons/
-// Specials) — it just tracks which of the visible spells the character
-// actually knows.
+// If the character owns the "Extra Spell" special, every Mage dot gained
+// after acquiring it grants an extra bonus slot on top of its normal one
+// (dots held before acquiring it don't retroactively grant the bonus).
+function getSpellSlotCountForRank(character, rank) {
+  const extraSpell = SPECIALS.find((s) => s.name === 'Extra Spell');
+  if (extraSpell && isSpecialOwned(character, extraSpell)) {
+    const baseRank = character.extraSpellBaseRank || 0;
+    return rank + Math.max(0, rank - baseRank);
+  }
+  return rank;
+}
+
+function getSpellSlotCount(character) {
+  return getSpellSlotCountForRank(character, character.classDots.Mage || 0);
+}
+
+function getSpellsLearnedCount(character) {
+  return SPELLS.reduce((sum, spell) => sum + (isSpellLearned(character, spell) ? 1 : 0), 0);
+}
+
+function canLearnSpell(character) {
+  return getSpellsLearnedCount(character) < getSpellSlotCount(character);
+}
+
 function isSpellLearned(character, spell) {
   return !!character.spellsLearned[spell.id];
 }
 
+// Learning a spell is free (no shared-pool point cost, unlike Skills/
+// Weapons/Specials) but capped by getSpellSlotCount — forgetting a spell
+// always frees its slot back up.
 function toggleSpellLearned(character, spell) {
-  character.spellsLearned[spell.id] = !isSpellLearned(character, spell);
+  const learned = isSpellLearned(character, spell);
+  if (!learned && !canLearnSpell(character)) return;
+  character.spellsLearned[spell.id] = !learned;
 }
 
 // ---------------------------------------------------------------------------
@@ -1074,18 +1111,310 @@ const MIRACLES = parseCsvWithHeader(MIRACLE_CSV).map((r) => ({
 
 const MIRACLE_SCHOOLS = [...new Set(MIRACLES.map((s) => s.school))].sort();
 
-// Miracles aren't purchased — every miracle is visible once 1+ ranks are in
-// Priest, regardless of current Focus.
+// Miracles aren't purchased with the shared class-point pool — instead every
+// Priest rank grants exactly one learnable-miracle slot. Every miracle is
+// visible once 1+ ranks are in Priest, regardless of current Focus, but only
+// as many can be *known* at once as Priest ranks allow.
 function hasMiracleAccess(character) {
   return (character.classDots.Priest || 0) >= 1;
+}
+
+// Same bonus mechanic as getSpellSlotCountForRank above, but for the
+// "Blessing of Miracles" special and Priest dots.
+function getMiracleSlotCountForRank(character, rank) {
+  const blessing = SPECIALS.find((s) => s.name === 'Blessing of Miracles');
+  if (blessing && isSpecialOwned(character, blessing)) {
+    const baseRank = character.extraMiracleBaseRank || 0;
+    return rank + Math.max(0, rank - baseRank);
+  }
+  return rank;
+}
+
+function getMiracleSlotCount(character) {
+  return getMiracleSlotCountForRank(character, character.classDots.Priest || 0);
+}
+
+function getMiraclesLearnedCount(character) {
+  return MIRACLES.reduce((sum, miracle) => sum + (isMiracleLearned(character, miracle) ? 1 : 0), 0);
+}
+
+function canLearnMiracle(character) {
+  return getMiraclesLearnedCount(character) < getMiracleSlotCount(character);
 }
 
 function isMiracleLearned(character, miracle) {
   return !!character.miraclesLearned[miracle.id];
 }
 
+// Learning a miracle is free (no shared-pool point cost) but capped by
+// getMiracleSlotCount — forgetting one always frees its slot back up.
 function toggleMiracleLearned(character, miracle) {
-  character.miraclesLearned[miracle.id] = !isMiracleLearned(character, miracle);
+  const learned = isMiracleLearned(character, miracle);
+  if (!learned && !canLearnMiracle(character)) return;
+  character.miraclesLearned[miracle.id] = !learned;
+}
+
+// ---------------------------------------------------------------------------
+// Equipment (data/fantasy_eq.csv) and Coinage (data/coinage.txt). A simple
+// shop: any item can be bought in any quantity, tracked separately from the
+// shared class-point economy and funded by the character's own coin purses.
+// ---------------------------------------------------------------------------
+
+const EQUIPMENT_CSV = `"Item","Type","Description","weight(lbs)","cost(GT)"
+"Dagger","weapons","Short blade for close work and throwing.","1","2"
+"Knife, utility","weapons","Camp and kitchen knife, poor as a weapon.","0.5","0.5"
+"Shortsword","weapons","One-handed blade for tight halls.","3","8"
+"Arming sword","weapons","Standard one-handed knight's sword.","4","15"
+"Longsword","weapons","Hand-and-a-half blade.","5","25"
+"Greatsword","weapons","Two-handed cutting sword.","8","40"
+"Hand axe","weapons","One-handed axe; also splits kindling.","3","5"
+"Battleaxe","weapons","Heavy one- or two-handed war axe.","6","12"
+"Greataxe","weapons","Two-handed executioner's axe.","10","25"
+"Mace","weapons","Flanged crushing head.","5","8"
+"Warhammer","weapons","Pick and face for mail and plate.","5","12"
+"Maul","weapons","Two-handed hammer.","12","15"
+"Spear","weapons","Thrusting shaft, 6–7 feet.","6","4"
+"Pike","weapons","Long formation spear, awkward indoors.","12","8"
+"Halberd","weapons","Axe-blade, hook, and point on a pole.","12","15"
+"Quarterstaff","weapons","Hardwood staff.","4","0.2"
+"Club","weapons","Simple bludgeon.","3","0.1"
+"Morningstar","weapons","Spiked striking head.","6","12"
+"Flail","weapons","Hinged striking head; ignores some shields in close.","6","10"
+"Rapier","weapons","Thrusting civilian blade.","2","20"
+"Scimitar","weapons","Curved slashing blade.","3","18"
+"Hand crossbow","weapons","One-handed light crossbow.","3","30"
+"Light crossbow","weapons","Standard spanned bow.","6","20"
+"Heavy crossbow","weapons","Slow, hard-hitting spanned bow.","12","40"
+"Shortbow","weapons","Hunting bow.","2","12"
+"Longbow","weapons","War bow; needs room to draw.","3","30"
+"Sling","weapons","Leather pouch and cords.","0.2","0.1"
+"Javelin","weapons","Light throwing spear.","2","1"
+"Throwing axe","weapons","Balanced hatchet.","2","3"
+"Arrows (20)","weapons","Sheaf for bows.","2","1"
+"Quarrels (20)","weapons","Bolts for crossbows.","2","1.5"
+"Sling bullets (20)","weapons","Lead or baked clay.","2","0.2"
+"Blowgun","weapons","Tube and darts sold separate.","1","4"
+"Darts (20)","weapons","Blowgun or throwing darts.","1","1"
+"Whip","weapons","Long lash.","2","2"
+"Man-catcher","weapons","Forked capture pole.","8","12"
+"Net, fighting","weapons","Entangling net.","6","5"
+"Caltrops (bag)","weapons","Enough to cover 5 feet.","2","1"
+"Padded jack","armor","Quilted cloth armor.","8","5"
+"Leather jerkin","armor","Boiled or layered leather.","10","10"
+"Studded leather","armor","Leather with metal rivets.","15","25"
+"Hide armor","armor","Thick hides and pelts.","20","12"
+"Mail shirt","armor","Torso mail.","25","60"
+"Mail hauberk","armor","Mail to the knee, with sleeves.","40","100"
+"Scale shirt","armor","Overlapping metal scales.","30","80"
+"Breastplate","armor","Solid chest and back.","20","200"
+"Half plate","armor","Breast, greaves, and vambraces.","40","350"
+"Full plate","armor","Complete articulated harness.","55","750"
+"Helmet, cap","armor","Simple steel cap.","3","8"
+"Helmet, open","armor","Nasal or kettle helm.","5","15"
+"Helmet, closed","armor","Visored helm.","8","40"
+"Shield, buckler","armor","Small fist shield.","3","5"
+"Shield, round","armor","Common wooden shield with boss.","6","8"
+"Shield, kite","armor","Tall cavalry or foot shield.","10","12"
+"Shield, tower","armor","Full-height pavise.","18","20"
+"Barding, leather","armor","Horse leather armor.","40","40"
+"Barding, mail","armor","Horse mail.","70","200"
+"Barding, plate","armor","Horse plate.","90","500"
+"Backpack","general","Leather pack, about 40 lb capacity.","2","2"
+"Sack","general","Burlap or canvas bag.","0.5","0.1"
+"Belt pouch","general","Small pouch for coin and flint.","0.2","0.3"
+"Waterskin (1 gal)","general","Filled skin; weight is full.","8","1"
+"Wineskin (1 gal)","general","As waterskin, for drink.","8","1"
+"Flask, metal","general","Pint flask.","1","2"
+"Vial, glass","general","Small stopper vial.","0.1","1"
+"Crowbar","general","Iron bar for prying.","5","2"
+"Hammer","general","Camp and nail hammer.","2","1"
+"Sledge","general","Heavy driving hammer.","10","3"
+"Pick, miner's","general","Breaking stone and packed earth.","8","4"
+"Shovel","general","Digging spade.","6","2"
+"Hand saw","general","Wood saw.","2","2"
+"Woodcutter's axe","general","Felling axe, not balanced for war.","6","3"
+"Block and tackle","general","Rope pulley for heavy lifts.","5","8"
+"Chain (10 ft)","general","Iron links.","10","8"
+"Rope, hemp (50 ft)","general","Common rope.","10","1"
+"Rope, silk (50 ft)","general","Lighter, stronger line.","5","10"
+"Grappling hook","general","Three-prong hook.","4","2"
+"Pitons (10)","general","Iron spikes for climbing.","5","2"
+"Manacles","general","Wrist irons and short chain.","2","8"
+"Lock, simple","general","Cheap padlock.","0.5","8"
+"Lock, good","general","Better wards.","1","20"
+"Lock, fine","general","Hard to pick.","1","50"
+"Thieves' tools","general","Picks, shims, small saw, files.","1","25"
+"Artisan tools (set)","general","One trade: smith, carpenter, tailor, etc.","8","20"
+"Healer's kit","general","Bandages, needle, salves for 10 uses.","3","8"
+"Herbalism pouch","general","Pouches and small knife for gathering.","2","5"
+"Alchemist's kit","general","Vials, burner, glassware.","8","40"
+"Writing kit","general","Ink, quills, wax, small knife.","2","8"
+"Parchment (sheet)","general","One sheet.","0.05","0.2"
+"Book, blank","general","Bound empty book.","3","20"
+"Book, printed or copied","general","Common treatise.","3","30"
+"Lantern, hooded","general","Shuttered oil lantern.","2","8"
+"Lantern, bullseye","general","Directed beam.","3","12"
+"Torch","general","Resin torch, about 1 hour.","1","0.05"
+"Lamp, clay","general","Simple oil lamp.","1","0.3"
+"Oil flask","general","1 pint lamp oil, about 6 hours.","1","0.1"
+"Candles (10)","general","Tallow candles.","1","0.1"
+"Tinderbox","general","Flint, steel, and tinder.","0.5","0.5"
+"Bedroll","general","Blanket and ground cloth.","5","1"
+"Blanket, winter","general","Heavy wool.","4","2"
+"Tent, one-man","general","Oilcloth shelter.","10","8"
+"Tent, four-man","general","Larger camp tent.","30","25"
+"Mess kit","general","Cup, plate, and spoon.","1","0.8"
+"Cookpot","general","Iron pot.","8","3"
+"Rations, poor (1 day)","general","Hard bread and dried beans.","1","0.1"
+"Rations, trail (1 day)","general","Dried meat, hardtack, dried fruit.","2","0.5"
+"Rations, fine (1 day)","general","Cheese, sausage, decent bread.","2","1.5"
+"Feed, horse (1 day)","general","Grain and hay portion.","10","0.1"
+"Ale, pint","general","Common tap ale.","1","0.05"
+"Wine, cheap bottle","general","Rough table wine.","2","0.2"
+"Wine, good bottle","general","Decent vintage.","2","2"
+"Spirits, flask","general","Strong drink.","1","1"
+"Lodging, common (night)","general","Shared room or pallet.","0","0.3"
+"Lodging, private (night)","general","Own room at an inn.","0","1"
+"Lodging, fine (night)","general","Good inn, bath and meal.","0","5"
+"Meal, poor","general","Stew and bread.","0","0.05"
+"Meal, common","general","Meat, bread, ale.","0","0.2"
+"Meal, fine","general","Roast and wine.","0","1"
+"Clothes, poor","general","Worn shirt, hose, wrap.","3","0.5"
+"Clothes, common","general","Shirt, breeches, cloak, shoes.","4","2"
+"Clothes, travel","general","Boots, cloak, sturdy coat.","6","5"
+"Clothes, fine","general","Dyed cloth and trim.","4","20"
+"Clothes, noble court","general","Silk or velvet display.","5","80"
+"Cloak, wool","general","Weather cloak.","3","2"
+"Cloak, winter","general","Fur-lined.","6","8"
+"Boots, common","general","Leather boots.","2","2"
+"Boots, riding","general","Tall boots.","3","5"
+"Gloves","general","Work or riding gloves.","0.3","1"
+"Belt","general","Leather belt.","0.3","0.3"
+"Holy symbol, wood","general","Carved token.","0.2","1"
+"Holy symbol, silver","general","Worked silver.","0.3","15"
+"Spell component pouch","general","Small pouches and vials.","2","5"
+"Focus, wooden wand","general","Simple magical focus.","0.5","8"
+"Focus, crystal","general","Cut crystal focus.","0.5","40"
+"Mirror, steel","general","Polished plate.","0.5","5"
+"Mirror, silvered","general","True glass mirror.","1","20"
+"Spyglass","general","Short brass scope.","1","80"
+"Hourglass","general","Minute or hour glass.","1","15"
+"Scale, merchant","general","Balance and weights.","3","8"
+"Abacus","general","Counting frame.","2","2"
+"Musical instrument, common","general","Flute, drum, or cheap lute.","2","8"
+"Musical instrument, fine","general","Well-made lute or harp.","5","40"
+"Signal whistle","general","Piercing whistle.","0.1","0.2"
+"Hunting horn","general","Carrying horn.","2","5"
+"Fishing tackle","general","Line, hooks, corks.","2","1"
+"Net, fishing","general","Weighted net.","8","3"
+"Soap","general","Bar of soap.","0.5","0.1"
+"Perfume, vial","general","Scented oil.","0.2","5"
+"Sealing wax","general","Stick of wax.","0.2","0.5"
+"Signet ring","general","Personal seal.","0.1","5"
+"Map, local","general","County or city map.","0.1","8"
+"Map, regional","general","Realm map, uneven quality.","0.1","20"
+"Compass","general","Magnetic needle.","0.3","25"
+"Saddle, riding","general","Common riding saddle.","20","15"
+"Saddle, war","general","High-cantle war saddle.","30","40"
+"Saddlebags","general","Pair of bags.","8","4"
+"Bit and bridle","general","Horse tack.","2","2"
+"Donkey","general","Pack beast.","0","12"
+"Mule","general","Sturdy pack and riding beast.","0","20"
+"Riding horse","general","Common hack.","0","75"
+"Draft horse","general","Wagon horse.","0","50"
+"Warhorse","general","Trained destrier.","0","400"
+"Pony","general","Small mount.","0","30"
+"Cart","general","Two-wheel cart.","200","15"
+"Wagon","general","Four-wheel wagon.","400","40"
+"Carriage","general","Passenger coach.","600","200"
+"Rowboat","general","Small boat.","120","50"
+"Keelboat","general","River boat.","0","750"
+"Sailing ship, small","general","Coast trader.","0","3000"
+"Chest, wooden","general","Lockable chest.","25","5"
+"Chest, iron-bound","general","Strong chest.","50","20"
+"Barrel","general","Cask, empty.","30","2"
+"Crate","general","Nail-built box.","15","1"
+"Ladder (10 ft)","general","Wooden ladder.","20","1"
+"Pole (10 ft)","general","Ash pole.","8","0.1"
+"Ink (vial)","general","Black ink.","0.1","8"
+"Chalk (10)","general","Marking sticks.","0.2","0.1"
+"Paint, pot","general","Small pigment pot.","1","2"
+"Spy-glass case","general","Leather tube.","0.5","2"
+"Tent stake set","general","Wood or iron stakes.","3","0.3"
+"Whetstone","general","Sharpening stone.","1","0.2"
+"Needle and thread","general","Repair kit.","0.1","0.2"
+"Winter blanket roll","general","Bedroll plus extra wool.","9","3"
+"Rain cloak, oiled","general","Waxed canvas cloak.","4","4"
+"Snowshoes","general","Pair.","4","5"
+"Skis","general","Pair and pole.","12","8"
+"Torch, storm","general","Pitch torch that takes weather better.","1.5","0.2"
+"Holy water (flask)","general","Blessed water.","1","15"
+"Acid (vial)","general","Strong acid.","1","10"
+"Antitoxin (vial)","general","Mundane anti-venom.","0.2","20"
+"Healing draught","general","Common stimulant tonic, not a miracle.","0.3","15"
+"Poison, simple (vial)","general","Restricted in most towns.","0.2","50"
+"Banner","general","House or company cloth.","3","8"
+"Tent, pavilion","general","Lord's camp tent.","80","120"
+"Portable altar","general","Small traveling shrine.","8","25"
+"Scabbard","general","Fitted sheath.","1","2"
+"Weapon oil","general","Protective oil.","0.3","0.5"
+"Armor repair kit","general","Rings, leather, rivets.","4","8"`;
+
+const EQUIPMENT = parseCsvWithHeader(EQUIPMENT_CSV).map((r) => ({
+  name: r.Item,
+  type: r.Type,
+  description: r.Description,
+  weight: parseFloat(r['weight(lbs)']) || 0,
+  cost: parseFloat(r['cost(GT)']) || 0,
+}));
+
+// Category tabs, in first-appearance order (weapons, armor, general).
+const EQUIPMENT_TYPES = [...new Set(EQUIPMENT.map((e) => e.type))];
+
+function getEquipmentQuantity(character, item) {
+  return character.equipmentOwned[item.name] || 0;
+}
+
+function getEquipmentOwnedEntries(character) {
+  return EQUIPMENT
+    .filter((item) => getEquipmentQuantity(character, item) > 0)
+    .map((item) => ({ item, quantity: getEquipmentQuantity(character, item) }))
+    .sort((a, b) => a.item.name.localeCompare(b.item.name));
+}
+
+function addEquipmentItem(character, item) {
+  character.equipmentOwned[item.name] = getEquipmentQuantity(character, item) + 1;
+}
+
+function removeEquipmentItem(character, item) {
+  const next = getEquipmentQuantity(character, item) - 1;
+  if (next > 0) character.equipmentOwned[item.name] = next;
+  else delete character.equipmentOwned[item.name];
+}
+
+function getEquipmentSpentGT(character) {
+  return EQUIPMENT.reduce((sum, item) => sum + item.cost * getEquipmentQuantity(character, item), 0);
+}
+
+// Coinage (data/coinage.txt): 1 Golden Royal = 5 Gold Dragons = 50 Gold
+// Talons; 1 Gold Talon = 1 Silver Fang = 10 Silver Chips = 100 Coppers.
+// Equipment costs are listed in Gold Talons (GT), so every coin's value below
+// is expressed relative to that.
+const COINAGE = [
+  { id: 'gr', name: 'Golden Royal', valueInGT: 50 },
+  { id: 'gd', name: 'Gold Dragon', valueInGT: 10 },
+  { id: 'gt', name: 'Gold Talon', valueInGT: 1 },
+  { id: 'sf', name: 'Silver Fang', valueInGT: 1 },
+  { id: 'sc', name: 'Silver Chip', valueInGT: 0.1 },
+  { id: 'cp', name: 'Copper', valueInGT: 0.01 },
+];
+
+function getWealthInGT(character) {
+  return COINAGE.reduce((sum, coin) => sum + (Number(character.coinage[coin.id]) || 0) * coin.valueInGT, 0);
+}
+
+function getEquipmentRemainingGT(character) {
+  return getWealthInGT(character) - getEquipmentSpentGT(character);
 }
 
 // Points a class has earned that haven't been spent yet on a Skill, Weapon
@@ -1334,6 +1663,9 @@ function createDefaultCharacter() {
   const staminaCost = {};
   STAMINA_COST_ITEMS.forEach((item) => { staminaCost[item.id] = { armor: 0, misc: 0 }; });
 
+  const coinage = {};
+  COINAGE.forEach((c) => { coinage[c.id] = 0; });
+
   return {
     name: '',
     focus: 'Fighter',
@@ -1345,6 +1677,10 @@ function createDefaultCharacter() {
     specialSpend,
     spellsLearned,
     miraclesLearned,
+    extraSpellBaseRank: 0,
+    extraMiracleBaseRank: 0,
+    coinage,
+    equipmentOwned: {},
     focusWeapons: rollFocusWeapons('Fighter', 'Human'),
     armorValue: 0,
     vitals: {
@@ -1379,12 +1715,17 @@ window.VennRPG = {
   SPECIALS, isSpecialEligible, getSpecialClassSpend, getSpecialSpentRank, isSpecialOwned, toggleSpecialForClass,
   getSpecialTierCount, getSpecialsOwnedCount, canAcquireSpecial,
   SPELLS, SPELL_SCHOOLS, hasSpellAccess, isSpellLearned, toggleSpellLearned,
+  getSpellSlotCount, getSpellSlotCountForRank, getSpellsLearnedCount, canLearnSpell,
   MIRACLES, MIRACLE_SCHOOLS, hasMiracleAccess, isMiracleLearned, toggleMiracleLearned,
+  getMiracleSlotCount, getMiracleSlotCountForRank, getMiraclesLearnedCount, canLearnMiracle,
   getClassPointsUsed, getClassPointsAvailable, getClassPointsTotal, getClassRankMultiplier,
   MULTI_VALUE_DELIMITER, parseMultiValue,
   COMBAT_STAT_GROUP, getMeleeBaseAttack, getRangedBaseAttack, getBaseDefense, getArmoredDefenseTotal,
   CASTING_STAT_GROUP, getMagicCasting, getMiracleCasting, VITALS_STATS,
   STAMINA_COST_ITEMS, getStaminaCostTotal,
+  EQUIPMENT, EQUIPMENT_TYPES, getEquipmentQuantity, getEquipmentOwnedEntries,
+  addEquipmentItem, removeEquipmentItem, getEquipmentSpentGT,
+  COINAGE, getWealthInGT, getEquipmentRemainingGT,
   rollAttribute, createDefaultCharacter, clamp, roundUp,
 };
 

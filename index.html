@@ -49,6 +49,8 @@
       </div>
       <div id="attributesList" class="attributes-list"></div>
       <div id="combatStatsList" class="derived-stats-list"></div>
+      <h3 class="derived-stats-title">Coinage</h3>
+      <div id="coinageList" class="coinage-list"></div>
     </section>
 
     <div class="right-column">
@@ -81,9 +83,7 @@
       <button type="button" class="collapse-toggle" id="weaponsCollapseToggle" aria-expanded="true">▾</button>
     </div>
     <div class="collapsible-body" id="weaponsBody">
-      <div id="weaponsTabs" class="skills-tabs"></div>
-      <div id="weaponsSummary" class="skills-summary"></div>
-      <div id="weaponsFocusSummary" class="skills-summary"></div>
+      <button type="button" id="buyWeaponsBtn">Buy Weapon Skills</button>
       <div class="weapons-tables">
         <div class="weapons-table-group">
           <h3 class="derived-stats-title">Melee Weapons</h3>
@@ -100,7 +100,7 @@
                   <th>E</th>
                 </tr>
               </thead>
-              <tbody id="meleeWeaponsBody"></tbody>
+              <tbody id="ownedMeleeWeaponsBody"></tbody>
             </table>
           </div>
         </div>
@@ -119,13 +119,85 @@
                   <th>E</th>
                 </tr>
               </thead>
-              <tbody id="rangedWeaponsBody"></tbody>
+              <tbody id="ownedRangedWeaponsBody"></tbody>
             </table>
           </div>
         </div>
       </div>
     </div>
   </section>
+
+  <dialog id="weaponsModal" class="equipment-modal weapons-modal">
+    <div class="equipment-modal-header">
+      <h2>Buy Weapon Skills</h2>
+      <button type="button" id="weaponsModalClose" class="secondary">Close</button>
+    </div>
+    <div id="weaponsTabs" class="skills-tabs"></div>
+    <div id="weaponsSummary" class="skills-summary"></div>
+    <div id="weaponsFocusSummary" class="skills-summary"></div>
+    <div class="weapons-tables">
+      <div class="weapons-table-group">
+        <h3 class="derived-stats-title">Melee Weapons</h3>
+        <div class="weapons-table-wrap">
+          <table class="weapons-table">
+            <thead>
+              <tr>
+                <th>Weapon</th>
+                <th>ROF</th>
+                <th>Target</th>
+                <th>B</th>
+                <th>S</th>
+                <th>P</th>
+                <th>E</th>
+              </tr>
+            </thead>
+            <tbody id="meleeWeaponsBody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="weapons-table-group">
+        <h3 class="derived-stats-title">Ranged Weapons</h3>
+        <div class="weapons-table-wrap">
+          <table class="weapons-table">
+            <thead>
+              <tr>
+                <th>Weapon</th>
+                <th>ROF</th>
+                <th>Target</th>
+                <th>B</th>
+                <th>S</th>
+                <th>P</th>
+                <th>E</th>
+              </tr>
+            </thead>
+            <tbody id="rangedWeaponsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </dialog>
+
+  <section class="panel equipment-panel">
+    <div class="panel-title-row">
+      <h2>Equipment</h2>
+      <button type="button" class="collapse-toggle" id="equipmentCollapseToggle" aria-expanded="true">▾</button>
+    </div>
+    <div class="collapsible-body" id="equipmentBody">
+      <button type="button" id="buyEquipmentBtn">Buy Equipment</button>
+      <div id="equipmentSummary" class="skills-summary"></div>
+      <div id="equipmentOwnedList" class="equipment-owned-list"></div>
+    </div>
+  </section>
+
+  <dialog id="equipmentModal" class="equipment-modal">
+    <div class="equipment-modal-header">
+      <h2>Buy Equipment</h2>
+      <button type="button" id="equipmentModalClose" class="secondary">Close</button>
+    </div>
+    <div id="equipmentWealthSummary" class="skills-summary equipment-wealth-summary"></div>
+    <div id="equipmentTabs" class="skills-tabs"></div>
+    <div id="equipmentModalList" class="equipment-modal-list"></div>
+  </dialog>
 
   <section class="panel skills-panel">
     <div class="panel-title-row">
@@ -145,11 +217,20 @@
       <button type="button" class="collapse-toggle" id="specialsCollapseToggle" aria-expanded="true">▾</button>
     </div>
     <div class="collapsible-body" id="specialsBody">
-      <div id="specialsSummary" class="skills-summary"></div>
-      <div id="specialsTierSummary" class="skills-summary"></div>
-      <div id="specialsList" class="specials-list"></div>
+      <button type="button" id="buySpecialsBtn">Buy Specials</button>
+      <div id="specialsOwnedList" class="specials-list"></div>
     </div>
   </section>
+
+  <dialog id="specialsModal" class="equipment-modal specials-modal">
+    <div class="equipment-modal-header">
+      <h2>Buy Specials</h2>
+      <button type="button" id="specialsModalClose" class="secondary">Close</button>
+    </div>
+    <div id="specialsSummary" class="skills-summary"></div>
+    <div id="specialsTierSummary" class="skills-summary"></div>
+    <div id="specialsList" class="specials-list"></div>
+  </dialog>
 
   <section class="panel spells-panel" id="spellsPanel" hidden>
     <div class="panel-title-row">
@@ -157,6 +238,7 @@
       <button type="button" class="collapse-toggle" id="spellsCollapseToggle" aria-expanded="true">▾</button>
     </div>
     <div class="collapsible-body" id="spellsBody">
+      <div id="spellsSummary" class="skills-summary"></div>
       <div id="spellsList" class="spells-list"></div>
     </div>
   </section>
@@ -167,6 +249,7 @@
       <button type="button" class="collapse-toggle" id="miraclesCollapseToggle" aria-expanded="true">▾</button>
     </div>
     <div class="collapsible-body" id="miraclesBody">
+      <div id="miraclesSummary" class="skills-summary"></div>
       <div id="miraclesList" class="spells-list"></div>
     </div>
   </section>

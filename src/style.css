@@ -310,6 +310,7 @@ button.secondary:hover {
 }
 
 .dot {
+  display: inline-block;
   width: 14px;
   height: 14px;
   border-radius: 50%;
@@ -327,6 +328,10 @@ button.secondary:hover {
 .dot:disabled {
   cursor: default;
   opacity: 0.9;
+}
+
+.dot.dot-static {
+  cursor: default;
 }
 
 .vitals-freeform-row {
@@ -686,4 +691,210 @@ button.secondary:hover {
   font-size: 0.78rem;
   color: var(--text-dim);
   line-height: 1.35;
+}
+
+.coinage-list {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 480px) {
+  .coinage-list { grid-template-columns: 1fr; }
+}
+
+.coinage-column {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.coinage-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.coinage-row .coinage-label {
+  flex: 0 0 100px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.coinage-row .coinage-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 7px 10px;
+  border-radius: 6px;
+  font-size: 0.95rem;
+}
+
+.equipment-panel #buyEquipmentBtn,
+.weapons-panel #buyWeaponsBtn,
+.specials-panel #buySpecialsBtn {
+  margin-bottom: 12px;
+}
+
+.specials-modal {
+  width: min(900px, 95vw);
+}
+
+.specials-modal #specialsList {
+  overflow-y: auto;
+  max-height: calc(85vh - 180px);
+}
+
+.weapons-modal {
+  width: min(1000px, 95vw);
+}
+
+.weapons-modal .weapons-tables {
+  overflow-y: auto;
+  max-height: calc(85vh - 220px);
+}
+
+.equipment-owned-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.equipment-owned-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.85rem;
+  border-bottom: 1px solid var(--panel-border);
+  padding-bottom: 6px;
+}
+
+.equipment-owned-row .equipment-owned-name {
+  color: var(--text);
+}
+
+.equipment-owned-row .equipment-owned-qty {
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.equipment-owned-row .equipment-owned-cost {
+  color: var(--accent);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.equipment-empty {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.equipment-modal {
+  width: min(720px, 92vw);
+  max-height: 85vh;
+  background: var(--panel-bg);
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 20px 24px;
+}
+
+.equipment-modal::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.equipment-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.equipment-modal-header h2 {
+  margin: 0;
+}
+
+.equipment-wealth-summary {
+  margin-bottom: 12px;
+  font-size: 0.85rem;
+}
+
+.equipment-wealth-summary .equipment-remaining-negative {
+  color: #e08585;
+  font-weight: 700;
+}
+
+.equipment-modal-list {
+  overflow-y: auto;
+  max-height: calc(85vh - 160px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.equipment-item-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 8px 12px;
+}
+
+.equipment-item-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.equipment-item-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.equipment-item-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.equipment-item-cost {
+  font-size: 0.78rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.equipment-item-weight {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+}
+
+.equipment-item-description {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.equipment-qty-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.equipment-qty-stepper button {
+  padding: 4px 10px;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.equipment-qty-value {
+  min-width: 1.5em;
+  text-align: center;
+  font-size: 0.9rem;
 }
