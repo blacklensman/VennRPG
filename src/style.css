@@ -613,3 +613,77 @@ button.secondary:hover {
   color: var(--text-dim);
   line-height: 1.35;
 }
+
+.spells-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.spell-school-title {
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 16px 0 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--panel-border);
+}
+
+.spell-school-title:first-child {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.spell-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.spell-box .spell-dot {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.spell-text {
+  min-width: 0;
+}
+
+.spell-name-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.spell-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.spell-cost {
+  font-size: 0.72rem;
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+.spell-meta {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
+
+.spell-meta span {
+  margin-right: 12px;
+}
+
+.spell-description {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  line-height: 1.35;
+}

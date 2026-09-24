@@ -16,6 +16,8 @@ const {
   getSkillClassSpend, getSkillSpentRank, getSkillEffectiveRank, getSkillTarget, toggleSkillRankForClass,
   SPECIALS, isSpecialEligible, isSpecialOwned, toggleSpecialForClass,
   getSpecialTierCount, getSpecialsOwnedCount, canAcquireSpecial,
+  SPELLS, SPELL_SCHOOLS, hasSpellAccess, isSpellLearned, toggleSpellLearned,
+  MIRACLES, MIRACLE_SCHOOLS, hasMiracleAccess, isMiracleLearned, toggleMiracleLearned,
   getClassPointsUsed, getClassPointsAvailable, getClassPointsTotal, getClassRankMultiplier,
   COMBAT_STAT_GROUP, getBaseDefense, getArmoredDefenseTotal, CASTING_STAT_GROUP, VITALS_STATS,
   STAMINA_COST_ITEMS, getStaminaCostTotal,
@@ -83,6 +85,14 @@ const el = {
   specialsSummary: document.getElementById('specialsSummary'),
   specialsTierSummary: document.getElementById('specialsTierSummary'),
   specialsList: document.getElementById('specialsList'),
+  spellsPanel: document.getElementById('spellsPanel'),
+  spellsBody: document.getElementById('spellsBody'),
+  spellsCollapseToggle: document.getElementById('spellsCollapseToggle'),
+  spellsList: document.getElementById('spellsList'),
+  miraclesPanel: document.getElementById('miraclesPanel'),
+  miraclesBody: document.getElementById('miraclesBody'),
+  miraclesCollapseToggle: document.getElementById('miraclesCollapseToggle'),
+  miraclesList: document.getElementById('miraclesList'),
   newCharacterBtn: document.getElementById('newCharacterBtn'),
   saveBtn: document.getElementById('saveBtn'),
   loadBtn: document.getElementById('loadBtn'),
@@ -259,6 +269,8 @@ function refreshPointsPanels() {
   renderSkills();
   renderWeapons();
   renderSpecials();
+  renderSpells();
+  renderMiracles();
 }
 
 // Generic tab bar: `tabNames` are the buttons shown, `getActive`/`setActive`
@@ -625,6 +637,107 @@ function renderSpecials() {
   });
 }
 
+// Spells are a reference grimoire, not purchased — every spell is visible,
+// grouped by school, once the character has 1+ ranks in Mage (regardless of
+// current Focus). Otherwise the whole panel stays hidden.
+// Shared by Spells (Mage) and Miracles (Priest): a reference grimoire, not
+// purchased — grouped by school, with a free learned/not-learned toggle per
+// entry. The whole panel hides until `hasAccess(character)` is true.
+function renderGrimoire(opts) {
+  const { panelEl, listEl, entries, schools, hasAccess, isLearned, toggleLearned, rerender } = opts;
+
+  panelEl.hidden = !hasAccess(character);
+  listEl.innerHTML = '';
+  if (panelEl.hidden) return;
+
+  schools.forEach((school) => {
+    const title = document.createElement('h3');
+    title.className = 'spell-school-title';
+    title.textContent = school;
+    listEl.appendChild(title);
+
+    entries.filter((entry) => entry.school === school).sort(byName).forEach((entry) => {
+      const box = document.createElement('div');
+      box.className = 'spell-box';
+
+      const learned = isLearned(character, entry);
+      const dotBtn = document.createElement('button');
+      dotBtn.type = 'button';
+      dotBtn.className = 'dot spell-dot' + (learned ? ' filled' : '');
+      dotBtn.title = learned ? `Forget ${entry.name}` : `Mark ${entry.name} as learned`;
+      dotBtn.addEventListener('click', () => {
+        toggleLearned(character, entry);
+        rerender();
+      });
+
+      const textWrap = document.createElement('div');
+      textWrap.className = 'spell-text';
+
+      const nameRow = document.createElement('div');
+      nameRow.className = 'spell-name-row';
+      const name = document.createElement('span');
+      name.className = 'spell-name';
+      name.textContent = entry.name;
+      const cost = document.createElement('span');
+      cost.className = 'spell-cost';
+      cost.textContent = entry.cost;
+      nameRow.appendChild(name);
+      nameRow.appendChild(cost);
+      textWrap.appendChild(nameRow);
+
+      const metaParts = [];
+      if (entry.defy) metaParts.push(`Defy: ${entry.defy}`);
+      if (entry.clock) metaParts.push(`Clock: ${entry.clock}`);
+      if (entry.crutch) metaParts.push(`Crutch: ${entry.crutch}`);
+      if (metaParts.length > 0) {
+        const meta = document.createElement('div');
+        meta.className = 'spell-meta';
+        metaParts.forEach((part) => {
+          const span = document.createElement('span');
+          span.textContent = part;
+          meta.appendChild(span);
+        });
+        textWrap.appendChild(meta);
+      }
+
+      const description = document.createElement('div');
+      description.className = 'spell-description';
+      description.textContent = entry.description;
+      textWrap.appendChild(description);
+
+      box.appendChild(dotBtn);
+      box.appendChild(textWrap);
+      listEl.appendChild(box);
+    });
+  });
+}
+
+function renderSpells() {
+  renderGrimoire({
+    panelEl: el.spellsPanel,
+    listEl: el.spellsList,
+    entries: SPELLS,
+    schools: SPELL_SCHOOLS,
+    hasAccess: hasSpellAccess,
+    isLearned: isSpellLearned,
+    toggleLearned: toggleSpellLearned,
+    rerender: renderSpells,
+  });
+}
+
+function renderMiracles() {
+  renderGrimoire({
+    panelEl: el.miraclesPanel,
+    listEl: el.miraclesList,
+    entries: MIRACLES,
+    schools: MIRACLE_SCHOOLS,
+    hasAccess: hasMiracleAccess,
+    isLearned: isMiracleLearned,
+    toggleLearned: toggleMiracleLearned,
+    rerender: renderMiracles,
+  });
+}
+
 function buildVitalsRow(stat) {
   const state = character.vitals[stat.id];
   const base = stat.formula(character);
@@ -847,6 +960,8 @@ function renderAll() {
   renderSkills();
   renderWeapons();
   renderSpecials();
+  renderSpells();
+  renderMiracles();
   renderVitals();
 }
 
@@ -862,6 +977,8 @@ function setupCollapsible(toggleBtn, bodyEl) {
 setupCollapsible(el.weaponsCollapseToggle, el.weaponsBody);
 setupCollapsible(el.skillsCollapseToggle, el.skillsBody);
 setupCollapsible(el.specialsCollapseToggle, el.specialsBody);
+setupCollapsible(el.spellsCollapseToggle, el.spellsBody);
+setupCollapsible(el.miraclesCollapseToggle, el.miraclesBody);
 
 el.charName.addEventListener('change', () => {
   character.name = el.charName.value;
@@ -984,6 +1101,16 @@ function normalizeLoadedCharacter(loaded) {
   result.specialSpend = {};
   SPECIALS.forEach((s) => {
     result.specialSpend[s.name] = normalizeLedgerSpend(loaded.specialSpend, s.name, result.classDots, 0, 1);
+  });
+
+  result.spellsLearned = {};
+  SPELLS.forEach((s) => {
+    result.spellsLearned[s.id] = !!(loaded.spellsLearned && loaded.spellsLearned[s.id]);
+  });
+
+  result.miraclesLearned = {};
+  MIRACLES.forEach((m) => {
+    result.miraclesLearned[m.id] = !!(loaded.miraclesLearned && loaded.miraclesLearned[m.id]);
   });
 
   result.weaponSpend = { melee: {}, ranged: {} };
