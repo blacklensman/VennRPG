@@ -1,2 +1,7 @@
 *.swp
 *.swo
+
+# Local-only source material and generated rulebook/data files — not published to the repo
+/data/
+/rules/
+/VennRPG.pdf
