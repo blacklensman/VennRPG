@@ -1,0 +1,184 @@
+/* Print-only character sheet, built by the "PDF" button (see app.js). Stays
+   invisible in the normal app view; only shown (and everything else hidden)
+   when the browser's print dialog opens. Save the print dialog's output as
+   PDF to get a filled character sheet for the current Focus. */
+
+#printSheet { display: none; }
+
+@media print {
+  @page { size: Letter; margin: 0.4in; }
+
+  html, body {
+    background: #fff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  body > *:not(#printSheet) { display: none !important; }
+  #printSheet { display: block !important; }
+
+  #printSheet {
+    background: #fff;
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 8pt;
+    color: #111;
+    line-height: 1.15;
+  }
+
+  #printSheet .sheetpage { page-break-before: always; }
+  #printSheet .sheetpage:first-child { page-break-before: avoid; }
+
+  #printSheet .section-title {
+    font-weight: bold;
+    font-size: 9pt;
+    margin: 4pt 0 1.5pt;
+    border-bottom: 1px solid #333;
+    padding-bottom: 1pt;
+  }
+  #printSheet .section-title .hint {
+    font-weight: normal;
+    font-style: italic;
+    font-size: 7pt;
+    color: #555;
+  }
+
+  /* --- header --- */
+  #printSheet .ps-header { margin-bottom: 3pt; }
+  #printSheet .ps-title { font-size: 14pt; font-weight: bold; text-align: center; margin-bottom: 3pt; }
+  #printSheet .ps-fields { display: flex; gap: 14pt; font-size: 8.5pt; align-items: baseline; }
+  #printSheet .ps-field { display: inline-flex; flex: 1; align-items: baseline; gap: 4pt; }
+  #printSheet .ps-field.wide { flex: 1.4; }
+  #printSheet .ps-field-value { font-weight: bold; border-bottom: 1px solid #333; flex: 1; min-width: 40pt; }
+
+  /* --- generic tables --- */
+  #printSheet table.compact { border-collapse: collapse; width: 100%; font-size: 7.6pt; margin: 0 0 3pt; }
+  #printSheet table.compact th, #printSheet table.compact td {
+    border: 1px solid #bbb;
+    padding: 1pt 3pt;
+    text-align: left;
+    height: 10pt;
+  }
+  #printSheet table.compact th { background: #eee; font-size: 7.3pt; }
+
+  #printSheet table.datatable { font-size: 7.3pt; }
+  #printSheet table.datatable th { text-align: center; }
+  #printSheet table.datatable td { height: 12pt; }
+  #printSheet table.datatable td.ps-empty { text-align: center; color: #555; font-style: italic; }
+
+  #printSheet .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 0 8pt; }
+
+  #printSheet .attrtable td:nth-child(2), #printSheet .attrtable td:nth-child(3) { width: 26%; }
+  #printSheet .attrtable .defycell { position: relative; }
+  #printSheet .attrtable .defy-value { font-weight: bold; }
+  #printSheet .attrtable .defy-formula {
+    position: absolute;
+    top: 1pt;
+    right: 2pt;
+    font-size: 5.5pt;
+    color: #111;
+    font-family: 'Courier New', monospace;
+  }
+
+  #printSheet .vitalstable th:not(:first-child), #printSheet .vitalstable td:not(:first-child) { width: 15%; }
+  #printSheet .vitalstable .totalcell { border-left: 1.5px solid #333; font-weight: bold; }
+  #printSheet .vitalstable td:first-child { height: auto; padding: 1pt 3pt; }
+
+  #printSheet .derivedtable td { height: auto; padding: 1pt 3pt; }
+  #printSheet .derivedtable td:last-child { width: 20%; font-weight: bold; }
+  #printSheet .stat-name { font-size: 7.3pt; line-height: 1.1; }
+  #printSheet .stat-formula {
+    font-size: 4.8pt;
+    line-height: 1.05;
+    color: #111;
+    font-family: 'Courier New', monospace;
+  }
+
+  /* --- classes --- */
+  #printSheet .classes-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5pt; margin-bottom: 3pt; }
+  #printSheet .classbox { border: 1px solid #999; border-radius: 3px; padding: 3pt 4pt; }
+  #printSheet .classbox-focus { border: 1.5px solid #333; background: #f3f3f3; }
+  #printSheet .classbox-name { font-weight: bold; font-size: 8pt; margin-bottom: 1pt; }
+  #printSheet .classbox-name .rank-value { font-weight: normal; font-size: 7pt; color: #444; }
+  #printSheet .classbox-defy { font-size: 6.3pt; color: #444; margin-top: 1pt; }
+
+  #printSheet .dotgrid { display: flex; flex-direction: column; gap: 1.5pt; }
+  #printSheet .dotsrow { display: flex; gap: 1.6pt; }
+  #printSheet .dot {
+    width: 5.5pt; height: 5.5pt;
+    border: 0.75pt solid #333;
+    border-radius: 50%;
+    background: #fff;
+    display: inline-block;
+    flex: 0 0 auto;
+  }
+  #printSheet .dot.filled { background: #333; }
+
+  #printSheet .classbox .dotsrow { gap: 0.7pt; }
+  #printSheet .classbox .dot { width: 4.6pt; height: 4.6pt; }
+
+  /* --- stamina cost --- */
+  #printSheet .stcell { border: 1px solid #bbb; padding: 2pt 4pt; text-align: center; }
+  #printSheet .stcell-name { font-weight: bold; font-size: 7.3pt; }
+  #printSheet .stcell-formula { font-size: 7pt; margin-top: 1pt; white-space: nowrap; }
+  #printSheet .stcell-formula b { font-weight: bold; }
+
+  /* --- page 2: specials + skills --- */
+  #printSheet .specials-columns { columns: 5; column-gap: 7pt; margin-bottom: 1pt; }
+  #printSheet .special-entry {
+    display: flex;
+    align-items: center;
+    gap: 2.5pt;
+    font-size: 6.3pt;
+    line-height: 1.05;
+    break-inside: avoid;
+    padding: 0.3pt 0;
+  }
+  #printSheet .special-entry .dot { width: 4.5pt; height: 4.5pt; }
+
+  #printSheet .skills-columns { columns: 3; column-gap: 10pt; }
+  #printSheet .skill-entry { break-inside: avoid; margin-bottom: 2pt; }
+  #printSheet .skill-name {
+    font-size: 7.2pt;
+    font-weight: bold;
+    line-height: 1.1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #printSheet .skill-attr { font-size: 0.82em; font-weight: normal; color: #999; }
+  #printSheet .skill-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 3pt;
+    line-height: 0.9;
+    font-size: 6.6pt;
+    color: #333;
+  }
+  #printSheet .skill-row b { font-weight: bold; color: #111; }
+
+  #printSheet .ps-empty-note { font-size: 7.5pt; color: #555; font-style: italic; margin: 2pt 0; }
+
+  /* --- pages 3/4: grimoire checklists --- */
+  #printSheet .grimoire-columns { columns: 3; column-gap: 12pt; }
+  #printSheet .grimoire-school { break-inside: avoid-column; margin-bottom: 4pt; }
+  #printSheet .grimoire-school-title {
+    font-weight: bold;
+    font-size: 8pt;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #444;
+    border-bottom: 1px solid #ccc;
+    margin-bottom: 1.5pt;
+  }
+  #printSheet .grimoire-entry {
+    display: flex;
+    align-items: center;
+    gap: 4pt;
+    font-size: 7.6pt;
+    padding: 1pt 0;
+    break-inside: avoid;
+  }
+  #printSheet .grimoire-entry.learned .grimoire-name { font-weight: bold; }
+  #printSheet .grimoire-name { flex: 1; }
+  #printSheet .grimoire-cost { color: #555; font-size: 6.8pt; }
+}

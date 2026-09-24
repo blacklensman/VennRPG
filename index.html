@@ -6,6 +6,7 @@
 <title>VennRPG Character Sheet</title>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="src/style.css">
+<link rel="stylesheet" href="src/print.css">
 </head>
 <body>
 <div class="sheet">
@@ -29,6 +30,7 @@
         <button id="newCharacterBtn" type="button" class="secondary">New Character</button>
         <button id="saveBtn" type="button">Save Character</button>
         <button id="loadBtn" type="button">Load Character</button>
+        <button id="pdfBtn" type="button">PDF</button>
         <input type="file" id="loadInput" accept="application/json,.json" hidden>
       </div>
     </div>
@@ -76,6 +78,95 @@
     </div>
 
   </main>
+
+  <section class="panel equipped-panel">
+    <div class="panel-title-row">
+      <h2>Equipped</h2>
+      <button type="button" class="collapse-toggle" id="equippedCollapseToggle" aria-expanded="true">▾</button>
+    </div>
+    <div class="collapsible-body" id="equippedBody">
+      <div id="equippedWeightSummary" class="skills-summary"></div>
+
+      <div class="weapons-tables equipped-weapons-tables">
+        <div class="weapons-table-group">
+          <h3 class="derived-stats-title">Melee Weapons</h3>
+          <div class="weapons-table-wrap">
+            <table class="weapons-table equipped-weapons-table">
+              <thead>
+                <tr>
+                  <th>Weapon</th>
+                  <th>Size</th>
+                  <th>Attribute</th>
+                  <th>ROF</th>
+                  <th>Target</th>
+                  <th>B</th>
+                  <th>S</th>
+                  <th>P</th>
+                  <th>E</th>
+                  <th>Condition</th>
+                </tr>
+              </thead>
+              <tbody id="equippedMeleeWeaponsBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="weapons-table-group">
+          <h3 class="derived-stats-title">Ranged Weapons</h3>
+          <div class="weapons-table-wrap">
+            <table class="weapons-table equipped-weapons-table">
+              <thead>
+                <tr>
+                  <th>Weapon</th>
+                  <th>Range</th>
+                  <th>Attribute</th>
+                  <th>ROF</th>
+                  <th>Target</th>
+                  <th>B</th>
+                  <th>S</th>
+                  <th>P</th>
+                  <th>E</th>
+                  <th>Condition</th>
+                </tr>
+              </thead>
+              <tbody id="equippedRangedWeaponsBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <h3 class="derived-stats-title">Armor</h3>
+      <div class="weapons-table-wrap">
+        <table class="weapons-table equipped-armor-table">
+          <thead>
+            <tr>
+              <th>Armor</th>
+              <th>Description</th>
+              <th>Qty</th>
+              <th>Weight</th>
+              <th>Cost</th>
+              <th>Condition</th>
+            </tr>
+          </thead>
+          <tbody id="equippedArmorBody"></tbody>
+        </table>
+      </div>
+
+      <h3 class="derived-stats-title">Other Equipment</h3>
+      <div class="weapons-table-wrap">
+        <table class="weapons-table equipped-general-table">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Qty</th>
+              <th>Weight</th>
+              <th>Cost</th>
+            </tr>
+          </thead>
+          <tbody id="equippedGeneralBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
 
   <section class="panel weapons-panel">
     <div class="panel-title-row">
@@ -179,7 +270,7 @@
 
   <section class="panel equipment-panel">
     <div class="panel-title-row">
-      <h2>Equipment</h2>
+      <h2>Purchase</h2>
       <button type="button" class="collapse-toggle" id="equipmentCollapseToggle" aria-expanded="true">▾</button>
     </div>
     <div class="collapsible-body" id="equipmentBody">
@@ -255,6 +346,8 @@
   </section>
 
 </div>
+
+<div id="printSheet"></div>
 
 <script src="src/data.js"></script>
 <script src="src/app.js"></script>

@@ -24,8 +24,11 @@ const {
   COMBAT_STAT_GROUP, getBaseDefense, getArmoredDefenseTotal, CASTING_STAT_GROUP, VITALS_STATS,
   STAMINA_COST_ITEMS, getStaminaCostTotal,
   EQUIPMENT, EQUIPMENT_TYPES, getEquipmentQuantity, getEquipmentOwnedEntries,
+  isEquipmentEquipped, isEquipmentCarried, setEquipmentEquipped, setEquipmentCarried,
+  getWornEquipmentEntries, getCarriedEquipmentWeightTotal,
+  getWornWeapons,
   addEquipmentItem, removeEquipmentItem, getEquipmentSpentGT,
-  COINAGE, getWealthInGT, getEquipmentRemainingGT,
+  COINAGE, getWealthInGT, spendFromCoinage, refundToCoinage,
   rollAttribute, createDefaultCharacter, clamp, roundUp,
 } = window.VennRPG;
 
@@ -125,6 +128,15 @@ const el = {
   equipmentWealthSummary: document.getElementById('equipmentWealthSummary'),
   equipmentTabs: document.getElementById('equipmentTabs'),
   equipmentModalList: document.getElementById('equipmentModalList'),
+  equippedBody: document.getElementById('equippedBody'),
+  equippedCollapseToggle: document.getElementById('equippedCollapseToggle'),
+  equippedWeightSummary: document.getElementById('equippedWeightSummary'),
+  equippedMeleeWeaponsBody: document.getElementById('equippedMeleeWeaponsBody'),
+  equippedRangedWeaponsBody: document.getElementById('equippedRangedWeaponsBody'),
+  equippedArmorBody: document.getElementById('equippedArmorBody'),
+  equippedGeneralBody: document.getElementById('equippedGeneralBody'),
+  pdfBtn: document.getElementById('pdfBtn'),
+  printSheet: document.getElementById('printSheet'),
 };
 
 function renderRaceOptions() {
@@ -290,6 +302,18 @@ function capitalize(s) {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
+function conditionLabel(equipped, carried) {
+  if (equipped && carried) return 'Equipped, Carried';
+  if (equipped) return 'Equipped';
+  if (carried) return 'Carried';
+  return '—';
+}
+
+function formatWeight(n) {
+  const rounded = Math.round(n * 100) / 100;
+  return rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
 // Coinage is a simple player-managed wallet — free-entry amounts, not tied
 // to any point economy — that funds Equipment purchases below.
 function renderCoinage() {
@@ -332,9 +356,8 @@ function renderCoinage() {
 // has actually been purchased — the shop itself lives in the popup below.
 function renderEquipmentPanel() {
   const wealth = getWealthInGT(character);
-  const spent = getEquipmentSpentGT(character);
-  const remaining = wealth - spent;
-  el.equipmentSummary.textContent = `Wealth: ${formatGT(wealth)} GT — Spent: ${formatGT(spent)} GT — Remaining: ${formatGT(remaining)} GT`;
+  const inventoryValue = getEquipmentSpentGT(character);
+  el.equipmentSummary.textContent = `Wealth: ${formatGT(wealth)} GT — Inventory value: ${formatGT(inventoryValue)} GT`;
 
   el.equipmentOwnedList.innerHTML = '';
   const entries = getEquipmentOwnedEntries(character);
@@ -345,7 +368,7 @@ function renderEquipmentPanel() {
     el.equipmentOwnedList.appendChild(empty);
     return;
   }
-  entries.forEach(({ item, quantity }) => {
+  entries.forEach(({ item, quantity, equipped, carried }) => {
     const row = document.createElement('div');
     row.className = 'equipment-owned-row';
 
@@ -357,30 +380,29 @@ function renderEquipmentPanel() {
     qty.className = 'equipment-owned-qty';
     qty.textContent = `x${quantity}`;
 
+    const condition = document.createElement('span');
+    condition.className = 'equipment-owned-condition';
+    condition.textContent = conditionLabel(equipped, carried);
+
     const cost = document.createElement('span');
     cost.className = 'equipment-owned-cost';
     cost.textContent = `${formatGT(item.cost * quantity)} GT`;
 
     row.appendChild(name);
     row.appendChild(qty);
+    row.appendChild(condition);
     row.appendChild(cost);
     el.equipmentOwnedList.appendChild(row);
   });
 }
 
 // The purchase popup: tabs by fantasy_eq.csv category, a running wealth/
-// spent/remaining total (spend draws from the same coinage as the main
-// page), and a +/- stepper per item.
+// running inventory value (spending/refunding actually deducts/adds coins
+// on the main page's Coinage section), and a +/- stepper per item.
 function renderEquipmentModal() {
   const wealth = getWealthInGT(character);
-  const spent = getEquipmentSpentGT(character);
-  const remaining = wealth - spent;
-  el.equipmentWealthSummary.innerHTML = '';
-  el.equipmentWealthSummary.appendChild(document.createTextNode(`Wealth: ${formatGT(wealth)} GT — Spent: ${formatGT(spent)} GT — Remaining: `));
-  const remainingSpan = document.createElement('span');
-  if (remaining < 0) remainingSpan.className = 'equipment-remaining-negative';
-  remainingSpan.textContent = `${formatGT(remaining)} GT`;
-  el.equipmentWealthSummary.appendChild(remainingSpan);
+  const inventoryValue = getEquipmentSpentGT(character);
+  el.equipmentWealthSummary.textContent = `Wealth: ${formatGT(wealth)} GT — Inventory value: ${formatGT(inventoryValue)} GT`;
 
   el.equipmentTabs.innerHTML = '';
   EQUIPMENT_TYPES.forEach((type) => {
@@ -434,8 +456,11 @@ function renderEquipmentModal() {
     minusBtn.disabled = quantity <= 0;
     minusBtn.addEventListener('click', () => {
       removeEquipmentItem(character, item);
+      refundToCoinage(character, item.cost);
+      renderCoinage();
       renderEquipmentModal();
       renderEquipmentPanel();
+      renderEquippedPanel();
     });
 
     const qtyValue = document.createElement('span');
@@ -447,18 +472,215 @@ function renderEquipmentModal() {
     plusBtn.textContent = '+';
     plusBtn.addEventListener('click', () => {
       addEquipmentItem(character, item);
+      spendFromCoinage(character, item.cost);
+      renderCoinage();
       renderEquipmentModal();
       renderEquipmentPanel();
+      renderEquippedPanel();
     });
 
     stepper.appendChild(minusBtn);
     stepper.appendChild(qtyValue);
     stepper.appendChild(plusBtn);
 
+    // Equipped/Carried are independent flags — neither implies the other —
+    // and only mean anything once at least 1 is owned.
+    const flags = document.createElement('div');
+    flags.className = 'equipment-condition-flags';
+
+    const equippedLabel = document.createElement('label');
+    const equippedCheckbox = document.createElement('input');
+    equippedCheckbox.type = 'checkbox';
+    equippedCheckbox.disabled = quantity <= 0;
+    equippedCheckbox.checked = isEquipmentEquipped(character, item);
+    equippedCheckbox.addEventListener('change', () => {
+      setEquipmentEquipped(character, item, equippedCheckbox.checked);
+      renderEquipmentPanel();
+      renderEquippedPanel();
+    });
+    equippedLabel.appendChild(equippedCheckbox);
+    equippedLabel.appendChild(document.createTextNode('Equipped'));
+
+    const carriedLabel = document.createElement('label');
+    const carriedCheckbox = document.createElement('input');
+    carriedCheckbox.type = 'checkbox';
+    carriedCheckbox.disabled = quantity <= 0;
+    carriedCheckbox.checked = isEquipmentCarried(character, item);
+    carriedCheckbox.addEventListener('change', () => {
+      setEquipmentCarried(character, item, carriedCheckbox.checked);
+      renderEquipmentPanel();
+      renderEquippedPanel();
+    });
+    carriedLabel.appendChild(carriedCheckbox);
+    carriedLabel.appendChild(document.createTextNode('Carried'));
+
+    flags.appendChild(equippedLabel);
+    flags.appendChild(carriedLabel);
+
     row.appendChild(textWrap);
     row.appendChild(stepper);
+    row.appendChild(flags);
     el.equipmentModalList.appendChild(row);
   });
+}
+
+// ---------------------------------------------------------------------------
+// Equipped panel: only what's actually Equipped or Carried (checkboxes live
+// in the Purchase popup) — melee/ranged tables are sourced from the matching
+// MELEE_WEAPONS/RANGED_WEAPONS skill entry (every shop weapon name is kept
+// in sync with those CSVs), reusing the same rank/Target formula as the Buy
+// Weapon Skills popup. Armor and Other Equipment read straight off the
+// purchased items.
+// ---------------------------------------------------------------------------
+
+function buildEquippedWeaponRow(weapon, category) {
+  const row = document.createElement('tr');
+  const equipmentItem = EQUIPMENT.find((e) => e.type === 'weapons' && e.name === weapon.name);
+
+  const nameCell = document.createElement('td');
+  nameCell.className = 'weapon-name-cell';
+  nameCell.textContent = weapon.name;
+
+  const secondCell = document.createElement('td');
+  secondCell.textContent = category === 'melee' ? weapon.size : weapon.range;
+
+  const attrCell = document.createElement('td');
+  attrCell.textContent = weapon.attribute.join(' / ');
+
+  const rofCell = document.createElement('td');
+  rofCell.textContent = weapon.rof;
+
+  const targetCell = document.createElement('td');
+  targetCell.className = 'weapon-target';
+  targetCell.textContent = getWeaponTarget(character, category, weapon.name);
+  targetCell.title = `Base Attack + (${getWeaponRate(character, category, weapon.name)} * rank)`;
+
+  const bCell = document.createElement('td');
+  bCell.textContent = weapon.blunt;
+  const sCell = document.createElement('td');
+  sCell.textContent = weapon.slash;
+  const pCell = document.createElement('td');
+  pCell.textContent = weapon.pierce;
+  const eCell = document.createElement('td');
+  eCell.textContent = weapon.energy;
+
+  const conditionCell = document.createElement('td');
+  conditionCell.className = 'equipped-condition-cell';
+  conditionCell.textContent = equipmentItem
+    ? conditionLabel(isEquipmentEquipped(character, equipmentItem), isEquipmentCarried(character, equipmentItem))
+    : '—';
+
+  row.appendChild(nameCell);
+  row.appendChild(secondCell);
+  row.appendChild(attrCell);
+  row.appendChild(rofCell);
+  row.appendChild(targetCell);
+  row.appendChild(bCell);
+  row.appendChild(sCell);
+  row.appendChild(pCell);
+  row.appendChild(eCell);
+  row.appendChild(conditionCell);
+  return row;
+}
+
+function renderEquippedWeaponsTable(tbody, category) {
+  tbody.innerHTML = '';
+  const weapons = getWornWeapons(character, category);
+
+  if (weapons.length === 0) {
+    const row = document.createElement('tr');
+    row.className = 'equipped-empty-row';
+    const cell = document.createElement('td');
+    cell.colSpan = 10;
+    cell.textContent = `No ${category} weapons equipped or carried.`;
+    row.appendChild(cell);
+    tbody.appendChild(row);
+    return;
+  }
+  weapons.forEach((weapon) => tbody.appendChild(buildEquippedWeaponRow(weapon, category)));
+}
+
+function renderEquippedArmorTable() {
+  el.equippedArmorBody.innerHTML = '';
+  const entries = getWornEquipmentEntries(character, 'armor');
+  if (entries.length === 0) {
+    const row = document.createElement('tr');
+    row.className = 'equipped-empty-row';
+    const cell = document.createElement('td');
+    cell.colSpan = 6;
+    cell.textContent = 'No armor equipped or carried.';
+    row.appendChild(cell);
+    el.equippedArmorBody.appendChild(row);
+    return;
+  }
+  entries.forEach(({ item, quantity, equipped, carried }) => {
+    const row = document.createElement('tr');
+
+    const nameCell = document.createElement('td');
+    nameCell.textContent = item.name;
+    const descCell = document.createElement('td');
+    descCell.textContent = item.description;
+    const qtyCell = document.createElement('td');
+    qtyCell.textContent = String(quantity);
+    const weightCell = document.createElement('td');
+    weightCell.textContent = `${formatWeight(item.weight * quantity)} lb`;
+    const costCell = document.createElement('td');
+    costCell.textContent = `${formatGT(item.cost * quantity)} GT`;
+    const conditionCell = document.createElement('td');
+    conditionCell.className = 'equipped-condition-cell';
+    conditionCell.textContent = conditionLabel(equipped, carried);
+
+    row.appendChild(nameCell);
+    row.appendChild(descCell);
+    row.appendChild(qtyCell);
+    row.appendChild(weightCell);
+    row.appendChild(costCell);
+    row.appendChild(conditionCell);
+    el.equippedArmorBody.appendChild(row);
+  });
+}
+
+function renderEquippedGeneralTable() {
+  el.equippedGeneralBody.innerHTML = '';
+  const entries = getWornEquipmentEntries(character, 'general');
+  if (entries.length === 0) {
+    const row = document.createElement('tr');
+    row.className = 'equipped-empty-row';
+    const cell = document.createElement('td');
+    cell.colSpan = 4;
+    cell.textContent = 'No other equipment carried.';
+    row.appendChild(cell);
+    el.equippedGeneralBody.appendChild(row);
+    return;
+  }
+  entries.forEach(({ item, quantity }) => {
+    const row = document.createElement('tr');
+
+    const nameCell = document.createElement('td');
+    nameCell.textContent = item.name;
+    const qtyCell = document.createElement('td');
+    qtyCell.textContent = String(quantity);
+    const weightCell = document.createElement('td');
+    weightCell.textContent = `${formatWeight(item.weight * quantity)} lb`;
+    const costCell = document.createElement('td');
+    costCell.textContent = `${formatGT(item.cost * quantity)} GT`;
+
+    row.appendChild(nameCell);
+    row.appendChild(qtyCell);
+    row.appendChild(weightCell);
+    row.appendChild(costCell);
+    el.equippedGeneralBody.appendChild(row);
+  });
+}
+
+function renderEquippedPanel() {
+  const totalWeight = getCarriedEquipmentWeightTotal(character);
+  el.equippedWeightSummary.textContent = `Total equipment weight (Equipped + Carried): ${formatWeight(totalWeight)} lb`;
+
+  renderEquippedWeaponsTable(el.equippedMeleeWeaponsBody, 'melee');
+  renderEquippedWeaponsTable(el.equippedRangedWeaponsBody, 'ranged');
+  renderEquippedArmorTable();
+  renderEquippedGeneralTable();
 }
 
 // Everything that depends on attributes/focus/race (but not class dots or
@@ -660,7 +882,7 @@ function renderWeaponRankDots(parent, weapon, category) {
   const canClaimSlot = !isDrawn && hasRoom && spentTotal === 0 && isWeaponFocusEligible(weapon, character.focus);
 
   const autoMin = isDrawn ? 1 : 0;
-  const effectiveRank = Math.max(spentTotal, autoMin);
+  const effectiveRank = getWeaponEffectiveRank(character, category, weapon.name);
   const ownSpend = getWeaponClassSpend(character, category, weapon.name, activeWeaponsTab);
   const ctx = {
     effectiveRank,
@@ -816,6 +1038,7 @@ function renderWeapons() {
   renderWeaponsTable(el.meleeWeaponsBody, MELEE_WEAPONS, 'melee');
   renderWeaponsTable(el.rangedWeaponsBody, RANGED_WEAPONS, 'ranged');
   renderOwnedWeapons();
+  renderEquippedPanel();
 }
 
 // Specials require the character's current Focus or Race to be listed —
@@ -1321,6 +1544,7 @@ setupCollapsible(el.specialsCollapseToggle, el.specialsBody);
 setupCollapsible(el.spellsCollapseToggle, el.spellsBody);
 setupCollapsible(el.miraclesCollapseToggle, el.miraclesBody);
 setupCollapsible(el.equipmentCollapseToggle, el.equipmentBody);
+setupCollapsible(el.equippedCollapseToggle, el.equippedBody);
 
 el.buyEquipmentBtn.addEventListener('click', () => {
   renderEquipmentModal();
@@ -1535,10 +1759,17 @@ function normalizeLoadedCharacter(loaded) {
   const equipmentByName = new Map(EQUIPMENT.map((item) => [item.name, item]));
   if (loaded.equipmentOwned && typeof loaded.equipmentOwned === 'object') {
     Object.keys(loaded.equipmentOwned).forEach((name) => {
-      const v = loaded.equipmentOwned[name];
-      if (equipmentByName.has(name) && Number.isFinite(v) && v > 0) {
-        result.equipmentOwned[name] = Math.floor(v);
-      }
+      if (!equipmentByName.has(name)) return;
+      const raw = loaded.equipmentOwned[name];
+      // Older saves stored a plain quantity number; current saves store
+      // { quantity, equipped, carried } — accept either.
+      const quantity = Number.isFinite(raw) ? raw : Number(raw && raw.quantity);
+      if (!Number.isFinite(quantity) || quantity <= 0) return;
+      result.equipmentOwned[name] = {
+        quantity: Math.floor(quantity),
+        equipped: !!(raw && raw.equipped),
+        carried: !!(raw && raw.carried),
+      };
     });
   }
 
@@ -1564,6 +1795,289 @@ function normalizeLoadedCharacter(loaded) {
 
   return result;
 }
+
+// ---------------------------------------------------------------------------
+// PDF export: builds a print-only sheet (hidden on screen, shown only when
+// the browser's print dialog opens — see src/print.css) that mirrors the
+// blank character-sheet PDF template for this character's current Focus,
+// filled in with live data, then calls window.print(). Save the print
+// dialog's output as PDF to get a filled sheet — there's no server-side or
+// bundled PDF library, this app stays file://-only and dependency-free.
+// ---------------------------------------------------------------------------
+
+function escHtml(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+const PRINT_COMBAT_CLASS_FOCUS_BONUS = { Fighter: 25, Priest: 20, Thief: 15, Mage: 10 };
+const PRINT_CLASS_MAGIC_FOCUS_BONUS = { Fighter: 0, Thief: 5, Priest: 5, Mage: 15 };
+const PRINT_CLASS_MIRACLE_FOCUS_BONUS = { Fighter: 0, Thief: 0, Mage: 5, Priest: 15 };
+const PRINT_VITALS_FOCUS_MOD_PD = { Fighter: 1, Priest: 0.9, Thief: 0.8, Mage: 0.7 };
+const PRINT_VITALS_FOCUS_MOD_MD = { Fighter: 0.7, Priest: 0.9, Thief: 0.9, Mage: 1.1 };
+
+// class_*_focus_bonus tokens in COMBAT_STAT_GROUP/CASTING_STAT_GROUP's
+// formulaText, swapped for this character's actual Focus bonus.
+function printWithFocusBonus(formula, focus) {
+  return formula
+    .replace(/class_magic_focus_bonus/g, String(PRINT_CLASS_MAGIC_FOCUS_BONUS[focus]))
+    .replace(/class_miracle_focus_bonus/g, String(PRINT_CLASS_MIRACLE_FOCUS_BONUS[focus]))
+    .replace(/class_focus_bonus/g, String(PRINT_COMBAT_CLASS_FOCUS_BONUS[focus]));
+}
+
+function printDotsRow(n, filled) {
+  let dots = '';
+  for (let i = 1; i <= n; i += 1) {
+    dots += `<i class="dot${i <= filled ? ' filled' : ''}"></i>`;
+  }
+  return `<span class="dotsrow">${dots}</span>`;
+}
+
+function printAttributesBlock() {
+  const keySet = new Set(DEFY_KEY_ATTRIBUTES[character.focus]);
+  const half = Math.ceil(ATTRIBUTES.length / 2);
+  const cols = [ATTRIBUTES.slice(0, half), ATTRIBUTES.slice(half)];
+  const col = (attrs) => `<table class="compact attrtable"><tr><th>Attribute</th><th>Value</th><th>Defy</th></tr>
+${attrs.map((a) => {
+    const value = getEffectiveAttribute(character, a);
+    const defy = getDefyValue(character.focus, a, value);
+    const rate = keySet.has(a) ? '&times;4%' : '&times;2%';
+    return `<tr><td>${escHtml(a)}</td><td><b>${value}</b></td><td class="defycell"><span class="defy-value">${defy}</span><span class="defy-formula">${rate}</span></td></tr>`;
+  }).join('')}
+</table>`;
+  return `<div class="section-title">Attributes</div>
+<div class="two-col">${col(cols[0])}${col(cols[1])}</div>`;
+}
+
+const PRINT_CLASSBOX_DOTS_PER_ROW = 20;
+
+function printClassesBlock() {
+  const boxes = CLASSES.map((cls) => {
+    const rank = character.classDots[cls];
+    const row1 = Math.min(rank, PRINT_CLASSBOX_DOTS_PER_ROW);
+    const row2 = Math.max(0, rank - PRINT_CLASSBOX_DOTS_PER_ROW);
+    return `
+<div class="classbox${cls === character.focus ? ' classbox-focus' : ''}">
+  <div class="classbox-name">${escHtml(cls)} <span class="rank-value">(${rank}/${CLASS_DOTS_MAX})</span></div>
+  <div class="dotgrid">${printDotsRow(PRINT_CLASSBOX_DOTS_PER_ROW, row1)}${printDotsRow(PRINT_CLASSBOX_DOTS_PER_ROW, row2)}</div>
+  <div class="classbox-defy">Defy: ${DEFY_KEY_ATTRIBUTES[cls].map((a) => a.slice(0, 3)).join('/')}</div>
+</div>`;
+  }).join('');
+  return `<div class="section-title">Focus</div>
+<div class="classes-row">${boxes}</div>`;
+}
+
+const PRINT_VITALS_BASE_FORMULAS = {
+  physicalDamage: (pd) => `(Phy+Str+Con)/2 &times; (${pd}+race_pd) &times; tot_rk`,
+  mentalDamage: (pd, md) => `(Intl+Wil+Con)/2 &times; (${md}+race_md) &times; tot_rk`,
+  movement: () => 'Str+Agi+Con+race_mv',
+  initiative: () => '(Agi+Intl+Intu+Brv)/4 + 5&times;Thf_rk + 3&times;Ftr_rk + race_init',
+  staminaRecovery: () => '(Con+Wil)/2',
+  stamina: () => 'Str + 2&times;Con + 2&times;Wil + tot_rk&times;(Con/2)',
+};
+
+function printVitalsBlock() {
+  const pdMod = PRINT_VITALS_FOCUS_MOD_PD[character.focus];
+  const mdMod = PRINT_VITALS_FOCUS_MOD_MD[character.focus];
+  const rows = VITALS_STATS.map((s) => {
+    const state = character.vitals[s.id];
+    const base = s.formula(character);
+    const magic = Number(state.magic) || 0;
+    const misc = Number(state.misc) || 0;
+    const total = roundUp(base + magic + misc);
+    const formula = PRINT_VITALS_BASE_FORMULAS[s.id](pdMod, mdMod);
+    return `<tr><td><div class="stat-name">${escHtml(s.name)}</div><div class="stat-formula">${formula}</div></td><td>${base}</td><td>${magic}</td><td>${misc}</td><td class="totalcell">${total}</td></tr>`;
+  }).join('');
+  return `<table class="compact vitalstable"><tr><th>Vital</th><th>Base</th><th>Magic</th><th>Misc</th><th>Total</th></tr>${rows}</table>`;
+}
+
+function printDerivedBlock() {
+  const items = [
+    ...COMBAT_STAT_GROUP.stats.map((s) => ({ name: s.name, formula: s.formulaText, value: s.formula(character) })),
+    { name: 'Armored Defense', formula: 'Base Defense + Armor Value', value: getArmoredDefenseTotal(character) },
+    ...CASTING_STAT_GROUP.stats.map((s) => ({ name: s.name, formula: s.formulaText, value: s.formula(character) })),
+  ];
+  const rows = items.map((it) => `<tr><td><div class="stat-name">${escHtml(it.name)}</div><div class="stat-formula">${escHtml(printWithFocusBonus(it.formula, character.focus))}</div></td><td>${it.value}</td></tr>`).join('');
+  return `<table class="compact derivedtable"><tr><th>Derived</th><th>Target</th></tr>${rows}</table>`;
+}
+
+function printStaminaCostBlock() {
+  const cells = STAMINA_COST_ITEMS.map((item) => {
+    const state = character.vitals.staminaCost[item.id];
+    const total = getStaminaCostTotal(character, item);
+    return `
+<td class="stcell">
+  <div class="stcell-name">${escHtml(item.name)}</div>
+  <div class="stcell-formula">${item.base} + <b>${Number(state.armor) || 0}</b> + <b>${Number(state.misc) || 0}</b> = <b>${total}</b></div>
+</td>`;
+  }).join('');
+  return `<table class="compact"><tr>${cells}</tr></table>`;
+}
+
+function printEquippedWeaponsTable() {
+  const rows = [
+    ...getWornWeapons(character, 'melee').map((w) => ({ w, category: 'melee' })),
+    ...getWornWeapons(character, 'ranged').map((w) => ({ w, category: 'ranged' })),
+  ];
+  const cols = ['Weapon', 'M/R', 'Size/Range', 'ROF', 'Target', 'B', 'S', 'P', 'E', 'Cond.'];
+  if (rows.length === 0) {
+    return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr><tr><td class="ps-empty" colspan="${cols.length}">No weapons equipped or carried.</td></tr></table>`;
+  }
+  const body = rows.map(({ w, category }) => {
+    const equipmentItem = EQUIPMENT.find((e) => e.type === 'weapons' && e.name === w.name);
+    const cond = equipmentItem ? conditionLabel(isEquipmentEquipped(character, equipmentItem), isEquipmentCarried(character, equipmentItem)) : '—';
+    const target = getWeaponTarget(character, category, w.name);
+    return `<tr><td>${escHtml(w.name)}</td><td>${category === 'melee' ? 'M' : 'R'}</td><td>${escHtml(category === 'melee' ? w.size : w.range)}</td><td>${w.rof}</td><td><b>${target}</b></td><td>${w.blunt}</td><td>${w.slash}</td><td>${w.pierce}</td><td>${w.energy}</td><td>${escHtml(cond)}</td></tr>`;
+  }).join('');
+  return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr>${body}</table>`;
+}
+
+function printArmorTable() {
+  const entries = getWornEquipmentEntries(character, 'armor');
+  const cols = ['Armor', 'Weight', 'Cost', 'S', 'B', 'P', 'E', 'Cond.'];
+  if (entries.length === 0) {
+    return `<table class="compact datatable armortable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr><tr><td class="ps-empty" colspan="${cols.length}">No armor equipped or carried.</td></tr></table>`;
+  }
+  const body = entries.map(({ item, quantity, equipped, carried }) => `<tr><td>${escHtml(item.name)}</td><td>${formatWeight(item.weight * quantity)} lb</td><td>${formatGT(item.cost * quantity)} GT</td><td></td><td></td><td></td><td></td><td>${escHtml(conditionLabel(equipped, carried))}</td></tr>`).join('');
+  return `<table class="compact datatable armortable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr>${body}</table>`;
+}
+
+function printGeneralEquipmentTable() {
+  const entries = getWornEquipmentEntries(character, 'general');
+  const cols = ['Item', 'Qty', 'Weight', 'Cost'];
+  if (entries.length === 0) {
+    return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr><tr><td class="ps-empty" colspan="${cols.length}">No other equipment carried.</td></tr></table>`;
+  }
+  const body = entries.map(({ item, quantity }) => `<tr><td>${escHtml(item.name)}</td><td>${quantity}</td><td>${formatWeight(item.weight * quantity)} lb</td><td>${formatGT(item.cost * quantity)} GT</td></tr>`).join('');
+  return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr>${body}</table>`;
+}
+
+function printPage1() {
+  const title = `VennRPG Character Sheet &mdash; ${escHtml(character.focus)}`;
+  return `<div class="sheetpage">
+  <div class="ps-header">
+    <div class="ps-title">${title}</div>
+    <div class="ps-fields">
+      <span class="ps-field wide">Character Name <span class="ps-field-value">${escHtml(character.name || 'Unnamed')}</span></span>
+      <span class="ps-field">Race <span class="ps-field-value">${escHtml(character.race)}</span></span>
+      <span class="ps-field">Focus <span class="ps-field-value">${escHtml(character.focus)}</span></span>
+    </div>
+  </div>
+
+  ${printAttributesBlock()}
+  ${printClassesBlock()}
+
+  <div class="two-col">
+    <div><div class="section-title">Vitals <span class="hint">(Base + Magic + Misc = Total)</span></div>${printVitalsBlock()}</div>
+    <div><div class="section-title">Combat &amp; Casting</div>${printDerivedBlock()}</div>
+  </div>
+
+  <div class="section-title">Stamina Cost <span class="hint">(Base + Armor + Misc = Total)</span></div>
+  ${printStaminaCostBlock()}
+
+  <div class="section-title">Equipped Weapons</div>
+  ${printEquippedWeaponsTable()}
+
+  <div class="section-title">Armor</div>
+  ${printArmorTable()}
+
+  <div class="section-title">General Equipment</div>
+  ${printGeneralEquipmentTable()}
+</div>`;
+}
+
+// This Focus's own Specials, plus any owned outside it (race-gated ones, or
+// left over from a Focus change) so nothing owned goes unlisted.
+function printSpecialsForSheet() {
+  const specials = SPECIALS.filter((s) => s.focus.includes(character.focus) || isSpecialOwned(character, s));
+  return [...specials].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+// This Focus's own Skills, plus every General Skill (always available).
+function printSkillsForSheet() {
+  const skills = SKILLS.filter((s) => isSkillEligibleForClass(character, s, character.focus) || isSkillGeneral(s));
+  return [...skills].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+function printSpecialsGrid() {
+  const items = printSpecialsForSheet().map((s) => {
+    const owned = isSpecialOwned(character, s);
+    return `<div class="special-entry"><i class="dot${owned ? ' filled' : ''}"></i><span>${escHtml(s.name)}</span></div>`;
+  }).join('');
+  return `<div class="section-title">Specials</div>
+<div class="specials-columns">${items}</div>`;
+}
+
+function printSkillsColumns() {
+  const items = printSkillsForSheet().map((s) => {
+    const rank = getSkillEffectiveRank(character, s);
+    const target = getSkillTarget(character, s);
+    return `
+<div class="skill-entry">
+  <div class="skill-name">${escHtml(s.name)} <span class="skill-attr">${escHtml(s.attribute.join('/'))}</span></div>
+  <div class="skill-row">Rank: <b>${rank}</b> Tgt: <b>${target}</b></div>
+</div>`;
+  }).join('');
+  return `<div class="section-title">Skills <span class="hint">Target = roundUp(avg(Attribute) + rank &times; 6%)</span></div>
+<div class="skills-columns">${items}</div>`;
+}
+
+// Skills actually bought outside this Focus (and not General) — real
+// entries only, since there's no fixed list the way the Focus/General set has.
+function printNonFocusSkillsBlock() {
+  const focusSet = new Set(printSkillsForSheet());
+  const owned = SKILLS.filter((s) => !focusSet.has(s) && getSkillEffectiveRank(character, s) > 0);
+  const body = owned.length === 0
+    ? '<div class="ps-empty-note">None — no Skills purchased outside this Focus.</div>'
+    : `<div class="skills-columns">${[...owned].sort((a, b) => a.name.localeCompare(b.name)).map((s) => {
+      const rank = getSkillEffectiveRank(character, s);
+      const target = getSkillTarget(character, s);
+      return `
+<div class="skill-entry">
+  <div class="skill-name">${escHtml(s.name)} <span class="skill-attr">${escHtml(s.attribute.join('/'))}</span></div>
+  <div class="skill-row">Rank: <b>${rank}</b> Tgt: <b>${target}</b></div>
+</div>`;
+    }).join('')}</div>`;
+  return `<div class="section-title">Non-Focus Skills <span class="hint">Target = roundUp(avg(Attribute) + rank &times; 3%)</span></div>
+${body}`;
+}
+
+function printPage2() {
+  return `<div class="sheetpage">
+${printSpecialsGrid()}
+${printSkillsColumns()}
+${printNonFocusSkillsBlock()}
+</div>`;
+}
+
+// Fighter/Thief have no Spell/Miracle access by default, so their printed
+// sheets skip these pages entirely (matching the blank PDF templates).
+function printGrimoireChecklist(title, entries, schools, isLearned) {
+  const bySchool = schools.map((school) => {
+    const items = entries.filter((e) => e.school === school).sort((a, b) => a.name.localeCompare(b.name));
+    const rows = items.map((e) => {
+      const learned = isLearned(e);
+      return `<div class="grimoire-entry${learned ? ' learned' : ''}"><i class="dot${learned ? ' filled' : ''}"></i><span class="grimoire-name">${escHtml(e.name)}</span><span class="grimoire-cost">${escHtml(e.cost)}</span></div>`;
+    }).join('');
+    return `<div class="grimoire-school"><div class="grimoire-school-title">${escHtml(school)}</div>${rows}</div>`;
+  }).join('');
+  return `<div class="sheetpage">
+<div class="section-title">${escHtml(title)}</div>
+<div class="grimoire-columns">${bySchool}</div>
+</div>`;
+}
+
+function buildPrintSheetHtml() {
+  const includeGrimoires = character.focus === 'Mage' || character.focus === 'Priest';
+  const page3 = includeGrimoires ? printGrimoireChecklist('Miracles', MIRACLES, MIRACLE_SCHOOLS, (m) => isMiracleLearned(character, m)) : '';
+  const page4 = includeGrimoires ? printGrimoireChecklist('Spells', SPELLS, SPELL_SCHOOLS, (s) => isSpellLearned(character, s)) : '';
+  return `${printPage1()}${printPage2()}${page3}${page4}`;
+}
+
+el.pdfBtn.addEventListener('click', () => {
+  el.printSheet.innerHTML = buildPrintSheetHtml();
+  window.print();
+});
 
 // Persist whenever the page is about to go away (reload, navigate, close),
 // so the in-progress character — not a fresh roll — comes back next time.

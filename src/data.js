@@ -240,7 +240,18 @@ Halberd,2-hand,,1,0,0,10,0,fighter;priest,
 Quarterstaff,2-hand,,2,0,6,0,0,fighter;thief;priest;mage,
 Club,1-hand,,2,0,0,6,0,fighter;thief;priest,
 Cudgel,1-hand,,2,0,0,4,0,fighter;thief;priest;mage,
-Improvised,1-hand,,2,0,0,4,0,fighter;thief;priest;mage,`;
+Improvised,1-hand,,2,0,0,4,0,fighter;thief;priest;mage,
+Shortsword,1-hand,,0,0,0,0,0,,
+Hand axe,1-hand,,0,0,0,0,0,,
+Battleaxe,2-hand,,0,0,0,0,0,,
+Greataxe,2-hand,,0,0,0,0,0,,
+Maul,2-hand,,0,0,0,0,0,,
+Rapier,1-hand,,0,0,0,0,0,,
+Scimitar,1-hand,,0,0,0,0,0,,
+Whip,1-hand,,0,0,0,0,0,,
+Man-catcher,2-hand,,0,0,0,0,0,,
+Fighting Net,2-hand,,0,0,0,0,0,,
+Caltrops (bag),thrown,,0,0,0,0,0,,`;
 
 const RANGED_WEAPONS_CSV = `name,rof,range,attribute,slash_dmg,blunt_dmg,pierce_dmg,enery_dmg,focus,race
 Blowgun,1,10,Agility,0,0,1,0,Fighter;Thief,
@@ -255,7 +266,12 @@ Javelin thrown,1,30,Agility,0,0,5,0,Fighter;Thief,
 Axe Thrown,1,10,Dexterity,5,3,0,0,Fighter;Thief,
 Dagger Thrown,2,10,Dexterity,2,0,4,0,Fighter;Thief,human;halfling;dwarf;elf
 Club Thrown,1,10,Dexterity,0,4,0,0,Fighter;Thief;Priest,human;halfling;dwarf
-Rock Thrown,1,20,Dexterity,0,1,0,0,Fighter;Thief;Priest;Mage,human;halfling;dwarf;elf`;
+Rock Thrown,1,20,Dexterity,0,1,0,0,Fighter;Thief;Priest;Mage,human;halfling;dwarf;elf
+Hand crossbow,0,0,,0,0,0,0,,
+Arrows (20),0,0,,0,0,0,0,,
+Quarrels (20),0,0,,0,0,0,0,,
+Sling bullets (20),0,0,,0,0,0,0,,
+Darts (20),0,0,,0,0,0,0,,`;
 
 function parseMeleeWeaponsCsv(csv) {
   return csv.trim().split('\n').slice(1).filter(Boolean).map((line) => {
@@ -420,8 +436,12 @@ function getWeaponSpentRank(character, category, weaponName) {
   return getLedgerSpentRank(character.weaponSpend[category], weaponName);
 }
 
+// Additive, not max: the free auto-min rank sits "under" whatever's been
+// paid for, so every paid rank (ledger step) always adds exactly 1 to the
+// effective rank — see setWeaponRankForClass below, which converts a target
+// effective rank into ledger terms by subtracting this same autoMin.
 function getWeaponEffectiveRank(character, category, weaponName) {
-  return Math.max(getWeaponSpentRank(character, category, weaponName), getWeaponAutoMinRank(character, category, weaponName));
+  return Math.min(WEAPON_RANKS_MAX, getWeaponSpentRank(character, category, weaponName) + getWeaponAutoMinRank(character, category, weaponName));
 }
 
 function getWeaponTarget(character, category, weaponName) {
@@ -430,8 +450,14 @@ function getWeaponTarget(character, category, weaponName) {
   return roundUp(base + rank * getWeaponRate(character, category, weaponName));
 }
 
+// targetRank is a target EFFECTIVE rank (what the dot grid shows); the
+// ledger only needs to cover the portion above the free auto-min rank, so
+// every dot — including the first paid one right after a free rank — costs
+// exactly 1 point.
 function setWeaponRankForClass(character, category, weaponName, cls, targetRank) {
-  setLedgerRankForClass(character.weaponSpend[category], weaponName, cls, targetRank, getClassPointsAvailable(character, cls));
+  const autoMin = getWeaponAutoMinRank(character, category, weaponName);
+  const ledgerTarget = Math.max(0, targetRank - autoMin);
+  setLedgerRankForClass(character.weaponSpend[category], weaponName, cls, ledgerTarget, getClassPointsAvailable(character, cls));
 }
 
 function toggleWeaponRankForClass(character, category, weaponName, cls, dotIndex) {
@@ -464,7 +490,8 @@ const SKILL_RANKS_PER_ROW = CLASS_DOTS_PER_ROW;
 const SKILL_BASE_RATE = 3;
 const SKILL_BONUS_RATE = 6;
 
-const SKILLS_CSV = `Abjuration,Ward people places and objects against harm and magic,Magic,mage;priest,
+const SKILLS_CSV = `name,description,attribute,focus,race
+Abjuration,Ward people places and objects against harm and magic,Magic,mage;priest,
 Acrobatics,Tumble flip and land safely or move through tight spaces,Agility,thief;fighter,halfling
 Adaptability,Roll you Defy check each time you Advance; if you roll under add one additional skill,Intellect,,human
 Alchemy,Mix mundane reagents into acids salves and reagents,Intellect,mage;priest,
@@ -620,8 +647,7 @@ Weapon Maintenance,Clean sharpen oil and repair arms so they do not fail,Dexteri
 Weapon Repair,Repairing all manner of weapons malfunctions with which you have training,intellect;intuition,fighter,
 Weaving,Make cloth rope and simple garments,Dexterity,,
 Whirlwind,Attack several adjacent enemies in one spinning effort,Agility,fighter,
-Wrestling,Throw pin and control an opponent without weapons,Strength,fighter;priest,
-name,description,attribute,focus,race`;
+Wrestling,Throw pin and control an opponent without weapons,Strength,fighter;priest,`;
 
 function parseSkillsCsv(csv) {
   return csv.trim().split('\n').slice(1).filter(Boolean).map((line) => {
@@ -685,8 +711,11 @@ function getSkillSpentRank(character, skill) {
   return getLedgerSpentRank(character.skillSpend, skill.name);
 }
 
+// Additive, not max: see the comment on getWeaponEffectiveRank — the free
+// auto-min rank sits "under" whatever's been paid for, so every paid rank
+// (ledger step) always adds exactly 1 to the effective rank.
 function getSkillEffectiveRank(character, skill) {
-  return Math.max(getSkillSpentRank(character, skill), getSkillAutoMinRank(character, skill));
+  return Math.min(SKILL_RANKS_MAX, getSkillSpentRank(character, skill) + getSkillAutoMinRank(character, skill));
 }
 
 function getSkillTarget(character, skill) {
@@ -694,8 +723,12 @@ function getSkillTarget(character, skill) {
   return roundUp(getAverageEffectiveAttribute(character, skill.attribute) + rank * getSkillRate(character, skill));
 }
 
+// targetRank is a target EFFECTIVE rank; see setWeaponRankForClass for why
+// the ledger target subtracts the free auto-min rank first.
 function setSkillRankForClass(character, skill, cls, targetRank) {
-  setLedgerRankForClass(character.skillSpend, skill.name, cls, targetRank, getClassPointsAvailable(character, cls));
+  const autoMin = getSkillAutoMinRank(character, skill);
+  const ledgerTarget = Math.max(0, targetRank - autoMin);
+  setLedgerRankForClass(character.skillSpend, skill.name, cls, ledgerTarget, getClassPointsAvailable(character, cls));
 }
 
 function toggleSkillRankForClass(character, skill, cls, dotIndex) {
@@ -887,39 +920,39 @@ function parseCsvWithHeader(csv) {
 }
 
 const SPELLS_CSV = `"id","school","name","cost","defy","clock","crutch","full_description"
-"A01","Attack","The Coruscating Coffin","1d4","none","","","A visible creature within 120 feet is sheathed in burning light. Physical harm equal to the result. Ordinary light cover does not help. Extra targets split harm and ancillary effects. Only Magical Soak against Physical spell-harm stops this. Ancillary: the target is shoved 5 feet straight back per rank; if they strike a wall or another body they stop there. Instant."
-"A02","Attack","The Thunderous Indictment","1d6","none","","","A visible creature within 100 feet is hit by compressed air and sound. Physical harm equal to the result. Extra targets split harm and ancillary effects. Only Magical Soak against Physical spell-harm stops this. Ancillary: the target is knocked prone. Standing from this takes their next move. Instant."
-"A03","Attack","Brand of the Waiting Spark","1d6","none","","","Mark a visible creature within 60 feet. At the start of their next turn they take Physical harm equal to the result. Extra targets split that delayed total. Matching Magical Soak against Physical spell-harm can eat the brand before it lands. If nothing removes it, it lasts only until that next turn, then discharges. Ancillary: when the brand discharges, the target takes -10% to melee attack rolls until the end of their following turn."
-"A04","Attack","Chorus of Splintered Nerves","1d6","none","","","A visible creature within 40 feet takes Mental harm equal to the result. This does not Control them. Extra targets split the total. Only Magical Soak against Mental harm stops this. Ancillary: they take -10% to melee defense until the end of their next turn. Instant."
-"A05","Attack","The Black Radiance","1d8","none","","","Physical harm equal to the result. You need only hear the target, within 60 feet. Extra targets split the total. Only Magical Soak against Physical spell-harm stops this. Ancillary: they are shoved 10 feet away from you per rank and take -20% to the next spell they try to cast before the end of their next turn. Instant."
-"A06","Attack","Damnation of the Inward Citadel","1d8","Willpower, and only if you bought 8 or more ranks","","","Mental harm equal to the result, 60 feet. No chant is required. Extra targets split the total. Only Magical Soak against Mental harm stops this. If a target's Mental track is 0 or below, they are Controlled for a number of rounds equal to the Mental harm they actually took. They obey non-suicidal physical orders. They will not cast or plan for you. Ancillary: even if they are not Controlled, they take -20% to casting until the end of their next turn."
-"A07","Attack","The Particular Pyre","1d10","Constitution, and only if you bought 8 or more ranks","","","Physical harm equal to the result, 80 feet. After Magical Soak and Defy, leftover harm may be moved onto one other visible creature. Only Magical Soak against Physical spell-harm stops this. Ancillary: the first target is knocked prone and shoved 5 feet per rank. The second target, if any, is only shoved. Instant."
-"A08","Attack","The Last Account","1d10","Constitution if Physical, Willpower if Mental — and only if you bought 8 or more ranks","","","Choose Physical or Mental when you cast. Harm equals the result. Extra targets split the total. Matching Magical Soak reduces it. If this drops that track to 0, rest and ordinary medicine cannot restore it. Only magic or miracle can. Ancillary: the target takes -20% to melee attacks and melee defense until they have taken a full turn. If they were dropped to 0 on that track, the penalty lasts until magic or miracle clears it."
-"A09","Attack","Decree of Ligneous Dissolution","1d12","none","","","Non-magical plant and fungus in a number of 5-foot cubes equal to the result, within 100 feet, slough to ash. You may instead spend the result as Physical harm against plant creatures in range, split if several. Enchanted plants are untouched. Only Magical Soak against Physical spell-harm stops harm from this working. Ancillary: a plant creature harmed by this is knocked prone as roots and fibers give way."
-"A10","Attack","The Wind of Final Repose","1d20","Constitution, and only if you bought 8 or more ranks","","","A silent burst, 20-foot radius, point within 200 feet. Living creatures in the radius split Physical harm equal to the result. A creature dropped to 0 Physical by this working is unconscious until magic or miracle wakes them, or until they take any new Physical harm. Only Magical Soak against Physical spell-harm stops this. Ancillary: every creature that takes any harm from this is knocked prone and shoved 5 feet toward the edge of the burst."
-"P01","Protection","Aegis of Mortal Hide","1d4","none","","","Willing creatures, objects, mounts, wagons, or one doorway within 30 feet. Split the result. Each subject gains Physical Soak equal to their share. The soak is ablative and lasts a number of hours equal to ranks spent. Weapons, falls, claws, weather, and ordinary fire eat the pool. Attack spells do not. Only magic or miracle ends it early."
-"P02","Protection","Pall of Threefold Refraction","1d6","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Magical Soak against Physical spell-harm equal to their share. That number does not shrink. It applies in full to every matching hit. It lasts a number of rounds equal to ranks spent, then ends."
-"P03","Protection","Veil of the Inner Citadel","1d6","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Mental Soak equal to their share. The soak is ablative and lasts a number of hours equal to ranks spent. Mental harm eats the pool. It does not lift Control already in effect. Only magic or miracle ends it early."
-"P04","Protection","Bastion of the Named House","1d8","none","","","One building you stand in. The building gains Magical Soak against Physical spell-harm equal to the result. The number does not shrink. It applies in full each time a spell strikes the building. It lasts a number of rounds equal to ranks spent."
-"P05","Protection","The Closed Eye","1d8","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Magical Soak against information magic (scrying, Flame Scrying, Elemental Spy, forced questions) equal to their share. The number does not shrink. It lasts a number of rounds equal to ranks spent."
-"P06","Protection","Pall of the Quiet Blood","1d10","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Physical Soak equal to their share. Ablative. Lasts a number of hours equal to ranks spent. This pool stops both mundane Physical harm and Physical spell-harm. Only magic or miracle ends it early."
-"P07","Protection","Veil of the Iron Hour","1d10","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Mental Soak equal to their share. Ablative. Lasts a number of hours equal to ranks spent. Only magic or miracle ends it early."
-"P08","Protection","Aegis of the Deep Lung","1d12","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Physical Soak equal to their share, usable only against drowning, smoke, vacuum, and mundane poison. Ablative. Lasts a number of hours equal to ranks spent."
-"P09","Protection","Wardpact of the March","1d12","none","","","A road, bridge, or trail you stand on, up to 10 feet of length per point of the result. Anyone you name who stays on that stretch shares one Physical Soak pool equal to the result. Ablative. Lasts a number of hours equal to ranks spent. Leaving the stretch does not dump the pool; returning to it still uses whatever remains."
-"P10","Protection","Bastion of the Closed County","1d20","none","","","One building, or a circuit of buildings you can walk in an hour. Split the result among those structures as Physical Soak pools (ablative, hours equal to ranks) or keep it as one Magical Soak on the whole circuit (full value, rounds equal to ranks). Say which when you finish. You may hitch The Living Well or The Vessel That Drinks to an ablative Physical Soak setting. Magical Soak does not use a well."
+"A01","Attack","The Coruscating Coffin","1d4","none","","","A visible creature within 120 feet is sheathed in burning light. Physical harm equal to the result. Ordinary light cover does not help. Extra targets split harm and ancillary effects. Only Magical Deflect against Physical spell-harm stops this. Ancillary: the target is shoved 5 feet straight back per rank; if they strike a wall or another body they stop there. Instant."
+"A02","Attack","The Thunderous Indictment","1d6","none","","","A visible creature within 100 feet is hit by compressed air and sound. Physical harm equal to the result. Extra targets split harm and ancillary effects. Only Magical Deflect against Physical spell-harm stops this. Ancillary: the target is knocked prone. Standing from this takes their next move. Instant."
+"A03","Attack","Brand of the Waiting Spark","1d6","none","","","Mark a visible creature within 60 feet. At the start of their next turn they take Physical harm equal to the result. Extra targets split that delayed total. Matching Magical Deflect against Physical spell-harm can eat the brand before it lands. If nothing removes it, it lasts only until that next turn, then discharges. Ancillary: when the brand discharges, the target takes -10% to melee attack rolls until the end of their following turn."
+"A04","Attack","Chorus of Splintered Nerves","1d6","none","","","A visible creature within 40 feet takes Mental harm equal to the result. This does not Control them. Extra targets split the total. Only Magical Deflect against Mental harm stops this. Ancillary: they take -10% to melee defense until the end of their next turn. Instant."
+"A05","Attack","The Black Radiance","1d8","none","","","Physical harm equal to the result. You need only hear the target, within 60 feet. Extra targets split the total. Only Magical Deflect against Physical spell-harm stops this. Ancillary: they are shoved 10 feet away from you per rank and take -20% to the next spell they try to cast before the end of their next turn. Instant."
+"A06","Attack","Damnation of the Inward Citadel","1d8","Willpower, and only if you bought 8 or more ranks","","","Mental harm equal to the result, 60 feet. No chant is required. Extra targets split the total. Only Magical Deflect against Mental harm stops this. If a target's Mental track is 0 or below, they are Controlled for a number of rounds equal to the Mental harm they actually took. They obey non-suicidal physical orders. They will not cast or plan for you. Ancillary: even if they are not Controlled, they take -20% to casting until the end of their next turn."
+"A07","Attack","The Particular Pyre","1d10","Constitution, and only if you bought 8 or more ranks","","","Physical harm equal to the result, 80 feet. After Magical Deflect and Defy, leftover harm may be moved onto one other visible creature. Only Magical Deflect against Physical spell-harm stops this. Ancillary: the first target is knocked prone and shoved 5 feet per rank. The second target, if any, is only shoved. Instant."
+"A08","Attack","The Last Account","1d10","Constitution if Physical, Willpower if Mental — and only if you bought 8 or more ranks","","","Choose Physical or Mental when you cast. Harm equals the result. Extra targets split the total. Matching Magical Deflect reduces it. If this drops that track to 0, rest and ordinary medicine cannot restore it. Only magic or miracle can. Ancillary: the target takes -20% to melee attacks and melee defense until they have taken a full turn. If they were dropped to 0 on that track, the penalty lasts until magic or miracle clears it."
+"A09","Attack","Decree of Ligneous Dissolution","1d12","none","","","Non-magical plant and fungus in a number of 5-foot cubes equal to the result, within 100 feet, slough to ash. You may instead spend the result as Physical harm against plant creatures in range, split if several. Enchanted plants are untouched. Only Magical Deflect against Physical spell-harm stops harm from this working. Ancillary: a plant creature harmed by this is knocked prone as roots and fibers give way."
+"A10","Attack","The Wind of Final Repose","1d20","Constitution, and only if you bought 8 or more ranks","","","A silent burst, 20-foot radius, point within 200 feet. Living creatures in the radius split Physical harm equal to the result. A creature dropped to 0 Physical by this working is unconscious until magic or miracle wakes them, or until they take any new Physical harm. Only Magical Deflect against Physical spell-harm stops this. Ancillary: every creature that takes any harm from this is knocked prone and shoved 5 feet toward the edge of the burst."
+"P01","Protection","Aegis of Mortal Hide","1d4","none","","","Willing creatures, objects, mounts, wagons, or one doorway within 30 feet. Split the result. Each subject gains Physical Deflect equal to their share. The deflect is ablative and lasts a number of hours equal to ranks spent. Weapons, falls, claws, weather, and ordinary fire eat the pool. Attack spells do not. Only magic or miracle ends it early."
+"P02","Protection","Pall of Threefold Refraction","1d6","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Magical Deflect against Physical spell-harm equal to their share. That number does not shrink. It applies in full to every matching hit. It lasts a number of rounds equal to ranks spent, then ends."
+"P03","Protection","Veil of the Inner Citadel","1d6","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Mental Deflect equal to their share. The deflect is ablative and lasts a number of hours equal to ranks spent. Mental harm eats the pool. It does not lift Control already in effect. Only magic or miracle ends it early."
+"P04","Protection","Bastion of the Named House","1d8","none","","","One building you stand in. The building gains Magical Deflect against Physical spell-harm equal to the result. The number does not shrink. It applies in full each time a spell strikes the building. It lasts a number of rounds equal to ranks spent."
+"P05","Protection","The Closed Eye","1d8","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Magical Deflect against information magic (scrying, Flame Scrying, Elemental Spy, forced questions) equal to their share. The number does not shrink. It lasts a number of rounds equal to ranks spent."
+"P06","Protection","Pall of the Quiet Blood","1d10","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Physical Deflect equal to their share. Ablative. Lasts a number of hours equal to ranks spent. This pool stops both mundane Physical harm and Physical spell-harm. Only magic or miracle ends it early."
+"P07","Protection","Veil of the Iron Hour","1d10","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Mental Deflect equal to their share. Ablative. Lasts a number of hours equal to ranks spent. Only magic or miracle ends it early."
+"P08","Protection","Aegis of the Deep Lung","1d12","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Physical Deflect equal to their share, usable only against drowning, smoke, vacuum, and mundane poison. Ablative. Lasts a number of hours equal to ranks spent."
+"P09","Protection","Wardpact of the March","1d12","none","","","A road, bridge, or trail you stand on, up to 10 feet of length per point of the result. Anyone you name who stays on that stretch shares one Physical Deflect pool equal to the result. Ablative. Lasts a number of hours equal to ranks spent. Leaving the stretch does not dump the pool; returning to it still uses whatever remains."
+"P10","Protection","Bastion of the Closed County","1d20","none","","","One building, or a circuit of buildings you can walk in an hour. Split the result among those structures as Physical Deflect pools (ablative, hours equal to ranks) or keep it as one Magical Deflect on the whole circuit (full value, rounds equal to ranks). Say which when you finish. You may hitch The Living Well or The Vessel That Drinks to an ablative Physical Deflect setting. Magical Deflect does not use a well."
 "E01","Elementalism","Elemental Spy","1d4","none","","","Enchant one candle-flame, stone, cup of water, or wisp of smoke. As a main action you may see and hear as if you stood there. Lasts a number of hours equal to the result, or until the focus is destroyed."
 "E02","Elementalism","Flame Scrying","1d4","none","","","While you stay still, you know the rough place of every open flame within 10 feet per point of the result, and may look and listen through one at a time. Lasts a number of minutes equal to the result."
 "E03","Elementalism","Query of Stone and Tide","1d6","none","","","Touch earth, stone, water, or open air. Ask one question that mass could have witnessed in the last day. The answer is short and literal. Enchanted matter does not speak. Instant."
 "E04","Elementalism","Decree of Needed Substance","1d6","none","","","Create mundane element: one bucket of water, one person-minute of air, one torch-flame, or one 5-foot square of packed earth per point of the result. Water and earth remain. Flame lasts hours equal to ranks unless fed. Air is spent as breathed."
 "E05","Elementalism","Elemental Favor","1d6","none","","","At the end of the round, a number of 5-foot cubes equal to the result of non-magical earth, stone, water, fire, or air move or reshape as you ask. If the shape would stand without magic, it remains as ordinary matter. If not, it holds until magic or miracle takes it off."
 "E06","Elementalism","The Unpaid Messenger","1d8","none","","","A small elemental does one concrete job it can finish in a number of minutes equal to the result. It will not fight. Then it is gone."
-"E07","Elementalism","Pact of Stone and Sea","1d8","none","","","Willing visible creatures; split if several. Each ignores mundane harm from one named element (earth, fire, water, or wind), including drowning, burial, or ordinary burning. This is not soak. Attack spells still harm them. Lasts a number of minutes equal to the result."
+"E07","Elementalism","Pact of Stone and Sea","1d8","none","","","Willing visible creatures; split if several. Each ignores mundane harm from one named element (earth, fire, water, or wind), including drowning, burial, or ordinary burning. This is not deflect. Attack spells still harm them. Lasts a number of minutes equal to the result."
 "E08","Elementalism","The Burrower Below","1d10","none","","","A tunnel a number of feet equal to the result through natural earth or stone, or one-fifth of that through worked stone. You choose the path. The hole remains as ordinary earthwork."
-"E09","Elementalism","Elemental Vallation","1d12","none","","","A wall a number of feet long equal to the result, 10 feet high, within 80 feet. Earth must be dug; a man-sized hole needs 10 + ranks damage from tools. Fire, water, or air: a creature forcing the line takes Physical harm equal to the result, split if several cross together. That harm is Attack-school; only Magical Soak against Physical spell-harm stops it. Ancillary: anyone who takes harm from the crossing is knocked prone on the far side. The wall lasts a number of rounds equal to ranks."
-"E10","Elementalism","Like the Stones","1d12","none","","","You need not breathe for a number of rounds equal to the result. Choose one: Stone — Physical Soak equal to the result, ablative, lasting that many hours. Water — pass a mouse-gap for ranks rounds. Air — fly at walking speed for ranks rounds. Fire — creatures in reach take 1 mundane Physical at the start of your turn for ranks rounds; Physical Soak can stop that, Magical Soak cannot."
+"E09","Elementalism","Elemental Vallation","1d12","none","","","A wall a number of feet long equal to the result, 10 feet high, within 80 feet. Earth must be dug; a man-sized hole needs 10 + ranks damage from tools. Fire, water, or air: a creature forcing the line takes Physical harm equal to the result, split if several cross together. That harm is Attack-school; only Magical Deflect against Physical spell-harm stops it. Ancillary: anyone who takes harm from the crossing is knocked prone on the far side. The wall lasts a number of rounds equal to ranks."
+"E10","Elementalism","Like the Stones","1d12","none","","","You need not breathe for a number of rounds equal to the result. Choose one: Stone — Physical Deflect equal to the result, ablative, lasting that many hours. Water — pass a mouse-gap for ranks rounds. Air — fly at walking speed for ranks rounds. Fire — creatures in reach take 1 mundane Physical at the start of your turn for ranks rounds; Physical Deflect can stop that, Magical Deflect cannot."
 "T01","Transmutation","Velocitous Imbuement of the Unburdened Step","1d4","none","","","Willing creatures you touch or that stand within 30 feet. Double ground speed; walls and beams if they finish on footing. Lasts a number of rounds equal to the result. Extra targets split the result for duration."
 "T02","Transmutation","The Excellent Transpicuous Transformation","1d6","none","","","Willing creatures within 30 feet turn clear, gear included. Blows against them take -4, or your table's equivalent. A charge, hard fall, or gestured spell ends it for that person. Lasts a number of minutes equal to the result, split if several targets."
-"T03","Transmutation","Like the Borrowed Hide","1d6","none","","","Willing creatures within 30 feet. Each gains one: fish-breath, beetle-grip, cat-eye, or Physical Soak equal to their share of the result (ablative, hours equal to ranks). Lasts a number of minutes equal to the result if you chose breath, grip, or eye."
+"T03","Transmutation","Like the Borrowed Hide","1d6","none","","","Willing creatures within 30 feet. Each gains one: fish-breath, beetle-grip, cat-eye, or Physical Deflect equal to their share of the result (ablative, hours equal to ranks). Lasts a number of minutes equal to the result if you chose breath, grip, or eye."
 "T04","Transmutation","Conjunction of the Inexorable Step","1d8","none","","","You and willing creatures within 30 feet appear at a visible safe point within a number of feet equal to 10 times the result. Extra bodies split the distance. Instant."
 "T05","Transmutation","The Long Unpacking of the Form","1d8","none","","","Willing targets become mundane animals no larger than themselves. Gear melds. Speech or a killing blow ends it for that person. Lasts a number of minutes equal to the result, split if several."
 "T06","Transmutation","Wardpact of Harmless Steel","1d10","none","","","Weapons within 60 feet, a number equal to ranks, deal no harm. Claws and teeth ignore this. Lasts until magic or miracle takes it off."
@@ -929,13 +962,13 @@ const SPELLS_CSV = `"id","school","name","cost","defy","clock","crutch","full_de
 "T10","Transmutation","The Excellent Exchange of Mass","1d12","none","","","Swap willing visible creatures within 10 feet per point of the result, or one willing creature and one unattended object of like bulk. Extra pairs split the range. Instant."
 "N01","Necromancy","Query the Skull","1d4","none","","","Touch a corpse dead no more than a number of days equal to the result. It answers a number of short literal questions equal to ranks. The same corpse will not do this twice."
 "N02","Necromancy","Terrible Liveliness","1d6","none","","","Undead already loyal to you, a number up to Mage Focus, look as they did in life. Lasts until you drop a mask, or until magic or miracle strips it."
-"N03","Necromancy","Smite the Dead","1d6","none","","","Point within 80 feet, 20-foot radius. Split Physical harm equal to the result among undead only. Living creatures are untouched. Only Magical Soak against Physical spell-harm reduces this. Ancillary: each undead that takes harm is shoved 5 feet away from the center."
-"N04","Necromancy","Command the Hollow","1d8","Willpower, and only if you bought 8 or more ranks","","","Mental harm equal to the result, undead only, 80 feet, split if several. Only Magical Soak against Mental harm reduces this. An undead whose Mental track hits 0 is bound as if raised. Ancillary: undead that take harm but stay unbound take -20% to melee attacks until the end of their next turn. Raised dead: every 5 points of result in a raising adds +1 to every rating on that husk, or buys one special (fearless, silent tread, tireless grip, semblance of life, armored bones). They last until you raise a new batch, unless you pay 1 stamina per old husk you keep."
+"N03","Necromancy","Smite the Dead","1d6","none","","","Point within 80 feet, 20-foot radius. Split Physical harm equal to the result among undead only. Living creatures are untouched. Only Magical Deflect against Physical spell-harm reduces this. Ancillary: each undead that takes harm is shoved 5 feet away from the center."
+"N04","Necromancy","Command the Hollow","1d8","Willpower, and only if you bought 8 or more ranks","","","Mental harm equal to the result, undead only, 80 feet, split if several. Only Magical Deflect against Mental harm reduces this. An undead whose Mental track hits 0 is bound as if raised. Ancillary: undead that take harm but stay unbound take -20% to melee attacks until the end of their next turn. Raised dead: every 5 points of result in a raising adds +1 to every rating on that husk, or buys one special (fearless, silent tread, tireless grip, semblance of life, armored bones). They last until you raise a new batch, unless you pay 1 stamina per old husk you keep."
 "N05","Necromancy","The Borrowed Pulse","1d6","none","","","A willing living donor you touch loses Physical equal to the result. A living or undead recipient you touch gains the same, up to their cap. You may be the donor. No unwilling targets. Extra donors or recipients split the result. Instant."
 "N06","Necromancy","Evocation of the Grave-Born Host","1d8","none","","","Touch intact corpses. Every 5 points of result adds +1 to every rating on that husk, or buys one special (fearless, silent tread, tireless grip, semblance of life, armored bones). Several corpses split those steps. They last until you raise a new batch, unless you pay 1 stamina per old husk you keep."
 "N07","Necromancy","Final Death","1d10","Constitution, once, and only after the first failed attempt to heal them","","","Visible living creatures, up to ranks of them. They cannot recover Physical by rest or ordinary medicine. Only magic or miracle restores them, or a successful Defy after that first failed healing. If they never try to heal, the ban lasts a number of rounds equal to ranks."
 "N08","Necromancy","Festering Curse","1d10","Constitution — only if the target's relevant scores sit in a higher band than yours","","","Visible living creatures, up to ranks of them. Food is ash, water does not slake, pleasures go numb, -2 on social work. No damage. Lasts until magic or miracle takes it off, or until you lift it."
-"N09","Necromancy","Compel Flesh","1d12","Physique, at the start of each of their turns","","","Up to ranks living or embodied undead, each within 100 feet. The body obeys non-suicidal physical orders. The mind is free. A successful Defy ends it for that body, and they take mundane Physical equal to Mage Focus; Physical Soak can reduce that, Magical Soak cannot. If not thrown off, lasts a number of rounds equal to ranks."
+"N09","Necromancy","Compel Flesh","1d12","Physique, at the start of each of their turns","","","Up to ranks living or embodied undead, each within 100 feet. The body obeys non-suicidal physical orders. The mind is free. A successful Defy ends it for that body, and they take mundane Physical equal to Mage Focus; Physical Deflect can reduce that, Magical Deflect cannot. If not thrown off, lasts a number of rounds equal to ranks."
 "N10","Necromancy","Forgetting the Grave","1d12","none","","","Willing creatures, up to ranks of them, do not die for 1 + ranks rounds. When it ends, postponed collapse arrives unless The Borrowed Pulse has paid it."
 "I01","Illusion","Phantasmal Mimesis","1d4","none","","","A number of 5-foot cubes equal to the result, within 60 feet, fill with sight, sound, and smell. They may sit together or apart. The image does as you intend while you can see it. Lasts a number of rounds equal to ranks. A person with hard reason to doubt may spend an action studying; then they know it is false. This does not deal Attack harm."
 "I02","Illusion","Damnation of the Sense","1d6","Intuition, and only if you bought 8 or more ranks","","","Visible creatures, up to ranks of them. One sense each — sight, hearing, or touch — lied to or blanked for Mage Focus rounds. If they Defy, it lasts only until the end of their next turn. This does not deal Attack harm."
@@ -950,15 +983,15 @@ const SPELLS_CSV = `"id","school","name","cost","defy","clock","crutch","full_de
 "R01","Ritual Magic","The Seal of Amber","1d6","none","10 minutes, or one night if you name more than one body","A volunteer loses 4 Physical, or apprentices pay 10 stamina each.","Willing or helpless bodies, up to Mage Focus of them. Stasis: no aging, no breath, ordinary weapons do not bite, light enough to carry. Lasts a number of hours equal to the result, split among bodies if you wish. Pay stamina across the clock (die size times ranks). Roll when the clock finishes; that total is the result. If the clock breaks, a Magic check returns half of your stamina."
 "R02","Ritual Magic","The Amber Archive","1d6","none","8 hours","The original you will lose, and one of: 2 Physical of your blood, an apprentice's 15 stamina, or an old library.","A crystal copy ordinary fire, damp, and time will not eat. Lasts a number of years equal to the result. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
 "R03","Ritual Magic","Decree Upon the Weather","1d8","none","3 hours, or 8 hours if you want days instead of hours","Open sky, and a choir paying stamina or Physical bled from willing donors (8 Physical for the short clock, 15 for the long).","One weather — rain, clear, frost, or still air — radius 50 feet per point of the result (100 feet per point on the long clock). Lasts ranks hours, or Mage Focus days on the long clock. Only magic or miracle clears it early. No aimed bolt. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
-"R04","Ritual Magic","Vallation of the Closed Horizon","1d8","none","1 hour, or dusk to dusk for a moon-long wall","Three payers into the working, or an ox, or an old stone circle. The long clock also needs a standing stone raised that night and a living well.","Circuit 10 feet per point of the result (20 feet per point on the long clock), 12 feet high. Assign the result as an ablative Physical Soak pool on the line or on named buildings (hours equal to ranks), or as Magical Soak against Physical spell-harm (full value, rounds equal to ranks). Earth must be dug. Fire, water, or air: crossing deals Physical harm equal to the result, split among those who cross together; only Magical Soak against Physical spell-harm stops that harm. If you chose an ablative pool, each discharge also eats the pool. The Living Well or The Vessel That Drinks may hitch to an ablative pool. Short clock ends at dawn if anything remains. Long clock ends at the next full moon if anything remains. Only magic or miracle ends it earlier. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
+"R04","Ritual Magic","Vallation of the Closed Horizon","1d8","none","1 hour, or dusk to dusk for a moon-long wall","Three payers into the working, or an ox, or an old stone circle. The long clock also needs a standing stone raised that night and a living well.","Circuit 10 feet per point of the result (20 feet per point on the long clock), 12 feet high. Assign the result as an ablative Physical Deflect pool on the line or on named buildings (hours equal to ranks), or as Magical Deflect against Physical spell-harm (full value, rounds equal to ranks). Earth must be dug. Fire, water, or air: crossing deals Physical harm equal to the result, split among those who cross together; only Magical Deflect against Physical spell-harm stops that harm. If you chose an ablative pool, each discharge also eats the pool. The Living Well or The Vessel That Drinks may hitch to an ablative pool. Short clock ends at dawn if anything remains. Long clock ends at the next full moon if anything remains. Only magic or miracle ends it earlier. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
 "R05","Ritual Magic","Rite of the Fed Servitor","1d8","none","4 hours","A corpse, and two apprentices paying stamina.","One or more undead. Every 5 points of result adds +1 to every rating on that husk, or buys one special (fearless, silent tread, tireless grip, semblance of life, armored bones). Lasts until the next new moon if fed 5 stamina each dusk (a hitched Living Well or Vessel That Drinks may pay). Otherwise until you raise a new batch. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
 "R06","Ritual Magic","Calculation of the High Servitor","1d20 (minimum 6 ranks)","none","6 hours","Beast or condemned body as clay, and four apprentices paying in, or a rare reagent.","One beast. Split the result equally across Physique, Strength, Constitution, Agility, Dexterity, Intellect, Intuition, Magic, Bravery, Willpower, Charisma, Attraction, Hide, Instinct, Base Damage, Movement, and the beast's Stamina. Drop remainder. Feed 5 stamina at dusk or it lasts only until the new moon. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
 "R07","Ritual Magic","Extirpate Arcana","1d10","Magic — only if the target working's caster has Mage Focus in a higher band than yours","10 minutes","Salt, iron, or running water on the site.","End one lasting magical effect you can see or touch, including workings that last until magic or miracle. The result must at least match the original working's result, or the original ranks times 4 if that result is unknown. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
-"R08","Ritual Magic","The Closed Sanctum","1d10","none","3 hours","Four walls and a roof, and two people paying stamina.","One room or small house. Split the result between ablative Physical Soak (hours equal to ranks) and Magical Soak against information magic (full value, rounds equal to ranks). The Living Well or The Vessel That Drinks may hitch to the Physical pool only. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
+"R08","Ritual Magic","The Closed Sanctum","1d10","none","3 hours","Four walls and a roof, and two people paying stamina.","One room or small house. Split the result between ablative Physical Deflect (hours equal to ranks) and Magical Deflect against information magic (full value, rounds equal to ranks). The Living Well or The Vessel That Drinks may hitch to the Physical pool only. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
 "R09","Ritual Magic","Casting Forth the Far Voice","1d12","none","1 hour","A token the listener has touched.","Speak to one known living creature within a number of miles equal to the result. They hear you for a number of minutes equal to ranks. You do not see them. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
-"R10","Ritual Magic","Conjunction of the Standing Gate","1d20","none","dusk to dusk","Two prepared doorways, a living well, and 20 Physical from willing donors total, or a dozen laborers paying 5 each.","Two marked doorways open onto each other. Anyone may pass. Give the result to the gate as ablative Physical Soak against attempts to smash it (hours equal to ranks) or as Magical Soak against attempts to twist it with spells (full value, rounds equal to ranks). Lasts until that defense is gone, or until magic or miracle closes the gate. The Living Well or The Vessel That Drinks may hitch to an ablative setting. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
-"R11","Ritual Magic","The Living Well","1d8","none. Unwilling targets do not opt out.","10 minutes","A bowl, pit, or marked stone, and at least one willing living creature (you may be that creature).","Name living creatures you can see or touch, up to one per Mage Focus. Willing and unwilling both bind when the clock ends. Unwilling creatures get no Defy and cannot refuse. A willing creature names a stamina stake, up to what they have. An unwilling creature's stake is their current stamina in full. Hitch the well to one standing working that uses an ablative pool. Magical Soak cannot drink a well. When the hitch is struck: drain bound stamina first; a body at 0 stamina stays bound and further drain is Physical damage (Physical Soak can reduce it, Magical Soak cannot); then the hitch's own pool; then the hitch ends. Unwilling cannot leave. The well ends when any willing participant leaves or dies, when the hitch ends, when magic or miracle breaks this working, or when a body is bound to a new well. If the last willing participant dies to the well's own Physical drain, the well ends and unwilling survivors are free. Failed clock: a Magic check returns half the stamina you spent. No one is bound."
-"R12","Ritual Magic","The Vessel That Drinks","1d12","none. Unwilling targets do not opt out.","dusk to dusk","One finished object that will hold the working — bowl, ring, stone, blade, door-iron, or the like — and at least one willing living creature bound at the close (you may be that creature).","The object becomes a magic item: a drinking vessel. It does nothing until you hitch it to an ablative pool, the same way The Living Well hitches to a wall, gate, or dusk-fed husk. Magical Soak cannot drink from this item. When the clock ends, name living creatures you can see or touch, up to one per Mage Focus, including the required willing body. They bind to the item, not to the ground. Unwilling creatures get no Defy and cannot refuse. A willing creature names how much stamina the item may take, up to what they have. An unwilling creature's stake is their current stamina in full. While the vessel is hitched, blows against that hitch drain in this order: (1) stamina from everyone bound to the item, split as you declared at binding (even split if you said nothing); (2) a body at 0 stamina stays bound and further drain on that body is Physical damage (Physical Soak can reduce it, Magical Soak cannot); (3) then the hitch working's own ablative pool; (4) then the hitch working ends. The item remains. It is empty of a hitch until you hitch it again, which takes a main action and a willing creature already bound to the item. The item can be carried. Distance does not free anyone. Unwilling bound stay until this item-working ends. They cannot walk free of it. This item-working ends when any willing participant bound to the item leaves or dies. Leave means you release them, or they choose to step out of the binding. At that moment every bound creature is freed. The object is still a drinking vessel, but it holds no one and no hitch. The working also ends if magic or miracle unmakes the enchantment, or if the object is destroyed. Destroying the object frees everyone at once. The result is the item's hold: the most stamina-and-then-Physical it can pull from the bound in a single blow. A hit that demands more than the hold stops at the hold; leftover demand goes straight to the hitch pool. The object stays a drinking vessel until magic or miracle strips it, or until it is destroyed. The bindings last only while a willing participant remains bound. Failed clock: a Magic check returns half the stamina you spent. The object is ordinary. No one is bound."`;
+"R10","Ritual Magic","Conjunction of the Standing Gate","1d20","none","dusk to dusk","Two prepared doorways, a living well, and 20 Physical from willing donors total, or a dozen laborers paying 5 each.","Two marked doorways open onto each other. Anyone may pass. Give the result to the gate as ablative Physical Deflect against attempts to smash it (hours equal to ranks) or as Magical Deflect against attempts to twist it with spells (full value, rounds equal to ranks). Lasts until that defense is gone, or until magic or miracle closes the gate. The Living Well or The Vessel That Drinks may hitch to an ablative setting. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
+"R11","Ritual Magic","The Living Well","1d8","none. Unwilling targets do not opt out.","10 minutes","A bowl, pit, or marked stone, and at least one willing living creature (you may be that creature).","Name living creatures you can see or touch, up to one per Mage Focus. Willing and unwilling both bind when the clock ends. Unwilling creatures get no Defy and cannot refuse. A willing creature names a stamina stake, up to what they have. An unwilling creature's stake is their current stamina in full. Hitch the well to one standing working that uses an ablative pool. Magical Deflect cannot drink a well. When the hitch is struck: drain bound stamina first; a body at 0 stamina stays bound and further drain is Physical damage (Physical Deflect can reduce it, Magical Deflect cannot); then the hitch's own pool; then the hitch ends. Unwilling cannot leave. The well ends when any willing participant leaves or dies, when the hitch ends, when magic or miracle breaks this working, or when a body is bound to a new well. If the last willing participant dies to the well's own Physical drain, the well ends and unwilling survivors are free. Failed clock: a Magic check returns half the stamina you spent. No one is bound."
+"R12","Ritual Magic","The Vessel That Drinks","1d12","none. Unwilling targets do not opt out.","dusk to dusk","One finished object that will hold the working — bowl, ring, stone, blade, door-iron, or the like — and at least one willing living creature bound at the close (you may be that creature).","The object becomes a magic item: a drinking vessel. It does nothing until you hitch it to an ablative pool, the same way The Living Well hitches to a wall, gate, or dusk-fed husk. Magical Deflect cannot drink from this item. When the clock ends, name living creatures you can see or touch, up to one per Mage Focus, including the required willing body. They bind to the item, not to the ground. Unwilling creatures get no Defy and cannot refuse. A willing creature names how much stamina the item may take, up to what they have. An unwilling creature's stake is their current stamina in full. While the vessel is hitched, blows against that hitch drain in this order: (1) stamina from everyone bound to the item, split as you declared at binding (even split if you said nothing); (2) a body at 0 stamina stays bound and further drain on that body is Physical damage (Physical Deflect can reduce it, Magical Deflect cannot); (3) then the hitch working's own ablative pool; (4) then the hitch working ends. The item remains. It is empty of a hitch until you hitch it again, which takes a main action and a willing creature already bound to the item. The item can be carried. Distance does not free anyone. Unwilling bound stay until this item-working ends. They cannot walk free of it. This item-working ends when any willing participant bound to the item leaves or dies. Leave means you release them, or they choose to step out of the binding. At that moment every bound creature is freed. The object is still a drinking vessel, but it holds no one and no hitch. The working also ends if magic or miracle unmakes the enchantment, or if the object is destroyed. Destroying the object frees everyone at once. The result is the item's hold: the most stamina-and-then-Physical it can pull from the bound in a single blow. A hit that demands more than the hold stops at the hold; leftover demand goes straight to the hitch pool. The object stays a drinking vessel until magic or miracle strips it, or until it is destroyed. The bindings last only while a willing participant remains bound. Failed clock: a Magic check returns half the stamina you spent. The object is ordinary. No one is bound."`;
 
 const SPELLS = parseCsvWithHeader(SPELLS_CSV).map((r) => ({
   id: r.id,
@@ -1027,24 +1060,24 @@ function toggleSpellLearned(character, spell) {
 const MIRACLE_CSV = `"id","school","name","cost","defy","clock","crutch","full_description"
 "PN01","Necromancy","Last Office of the Dead","1d4","none","","","Touch a corpse. Decay pauses and vermin leave it. The body cannot be raised by any working cheaper than 1d8 until this office ends. Lasts a number of days equal to the result. Only magic or miracle ends it early."
 "PN02","Necromancy","Query the Consecrated Skull","1d4","none","","","Touch a corpse dead no more than a number of days equal to the result that has received some rite of rest, even a hurried one. It answers a number of short literal questions equal to ranks. The same corpse will not do this twice. Answers tend toward what the dead believed at the end, not what a necromancer could wrench out."
-"PN03","Necromancy","Smite the Unquiet","1d6","none","","","Point within 80 feet, 20-foot radius. Split Physical harm equal to the result among undead only. Living creatures are untouched. Only Magical Soak against Physical spell-harm reduces this. Ancillary: each undead that takes harm is shoved 5 feet away from the center."
-"PN04","Necromancy","Still the Walking Corpse","1d6","none","","","One visible undead within 60 feet takes Physical harm equal to the result. Only Magical Soak against Physical spell-harm reduces this. Ancillary: it takes -10% to melee attacks until the end of its next turn. Extra targets split harm and the penalty."
+"PN03","Necromancy","Smite the Unquiet","1d6","none","","","Point within 80 feet, 20-foot radius. Split Physical harm equal to the result among undead only. Living creatures are untouched. Only Magical Deflect against Physical spell-harm reduces this. Ancillary: each undead that takes harm is shoved 5 feet away from the center."
+"PN04","Necromancy","Still the Walking Corpse","1d6","none","","","One visible undead within 60 feet takes Physical harm equal to the result. Only Magical Deflect against Physical spell-harm reduces this. Ancillary: it takes -10% to melee attacks until the end of its next turn. Extra targets split harm and the penalty."
 "PN05","Necromancy","The Peaceful Mask","1d8","none","","","Undead already bound to you or lying at rest, a number up to Priest Focus, appear as they did in honest sleep or ordinary life. Lasts until you drop a mask, or until magic or miracle strips it."
 "PN06","Necromancy","Evocation of the Ancestor Host","1d8","none","","","Touch intact corpses that you name as kin, parish dead, or sworn dead. Every 5 points of result adds +1 to every rating on that husk, or buys one special (fearless, silent tread, tireless grip, semblance of life, armored bones). Several corpses split those steps. They obey the priest. They last until you raise a new batch, unless you pay 1 stamina per old husk you keep."
 "PN07","Necromancy","The Hallowed Grave","1d10","none","","","Consecrate one grave, pyre-place, or tomb you can touch. A number of undead equal to ranks cannot rise from it, and workings to raise from it fail unless their result beats this result. Lasts until magic or miracle breaks the hallow."
 "PN08","Necromancy","Final Peace","1d10","Constitution — only if the target undead's maker has Focus in a higher band than yours","","","One visible undead. It cannot recover Physical by rest or ordinary mending. Only magic or miracle restores it. If this drops it to 0 Physical, it will not rise again unless a working of 1d12 or greater is used. You may name a number of targets up to ranks."
-"PN09","Necromancy","Compel the Unquiet Bones","1d12","Physique, at the start of each of their turns","","","Up to ranks embodied undead, each within 100 feet. The body obeys non-suicidal physical orders. The mind, if any, is free. A successful Defy ends it for that body, and they take mundane Physical equal to Priest Focus; Physical Soak can reduce that, Magical Soak cannot. If not thrown off, lasts a number of rounds equal to ranks."
-"PN10","Necromancy","The Last Trump","1d20","Bravery, and only if you bought 8 or more ranks","","","A 20-foot radius, point within 100 feet. Undead in the radius split Physical harm equal to the result. Any dropped to 0 Physical by this working fall still and cannot be raised except by a 1d20 magic or miracle. Living in the radius are untouched. Only Magical Soak against Physical spell-harm reduces this. Ancillary: each undead that takes harm is knocked prone."
+"PN09","Necromancy","Compel the Unquiet Bones","1d12","Physique, at the start of each of their turns","","","Up to ranks embodied undead, each within 100 feet. The body obeys non-suicidal physical orders. The mind, if any, is free. A successful Defy ends it for that body, and they take mundane Physical equal to Priest Focus; Physical Deflect can reduce that, Magical Deflect cannot. If not thrown off, lasts a number of rounds equal to ranks."
+"PN10","Necromancy","The Last Trump","1d20","Bravery, and only if you bought 8 or more ranks","","","A 20-foot radius, point within 100 feet. Undead in the radius split Physical harm equal to the result. Any dropped to 0 Physical by this working fall still and cannot be raised except by a 1d20 magic or miracle. Living in the radius are untouched. Only Magical Deflect against Physical spell-harm reduces this. Ancillary: each undead that takes harm is knocked prone."
 "PR01","Ritual Magic","Vigil of Amber Rest","1d6","none","10 minutes, or one night if you name more than one body","A candle that burns the whole clock, and a willing watcher (you may be that watcher).","Willing or helpless bodies, up to Priest Focus of them. Sacred stasis: no aging, no breath, ordinary weapons do not bite, light enough to carry. Lasts a number of hours equal to the result, split among bodies if you wish. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
 "PR02","Ritual Magic","The Reliquary","1d6","none","8 hours","A relic, bone, cloth, or written prayer you will seal, and one of: 2 Physical of your blood, a congregation's 15 stamina, or a place that has held worship for a generation.","Seal the offering in crystal or iron that ordinary fire, damp, and time will not eat. Lasts a number of years equal to the result."
 "PR03","Ritual Magic","Weather of the Parish","1d8","none","3 hours, or 8 hours if you want days instead of hours","Open sky over consecrated or claimed ground, and a choir paying stamina or 8 Physical from willing donors (15 for the long clock).","One weather — rain, clear, frost, or still air — radius 50 feet per point of the result (100 feet per point on the long clock). Lasts ranks hours, or Priest Focus days on the long clock. Only magic or miracle clears it early. No aimed bolt."
-"PR04","Ritual Magic","Consecration of the Closed Horizon","1d8","none","1 hour, or dusk to dusk for a moon-long bound","Three worshippers paying stamina, or an offering animal, or old holy ground. The long clock also needs a standing stone or altar raised that night.","Circuit 10 feet per point of the result (20 feet per point on the long clock), 12 feet high. Assign the result as ablative Physical Soak (hours equal to ranks) or Magical Soak against Physical spell-harm (full value, rounds equal to ranks). Crossing a bright line deals Physical harm equal to the result, split among those who cross together; only Magical Soak against Physical spell-harm stops that. Ablative pools may hitch The Living Well or The Vessel That Drinks. Short clock ends at dawn if anything remains. Long clock ends at the next full moon if anything remains. Only magic or miracle ends it earlier."
+"PR04","Ritual Magic","Consecration of the Closed Horizon","1d8","none","1 hour, or dusk to dusk for a moon-long bound","Three worshippers paying stamina, or an offering animal, or old holy ground. The long clock also needs a standing stone or altar raised that night.","Circuit 10 feet per point of the result (20 feet per point on the long clock), 12 feet high. Assign the result as ablative Physical Deflect (hours equal to ranks) or Magical Deflect against Physical spell-harm (full value, rounds equal to ranks). Crossing a bright line deals Physical harm equal to the result, split among those who cross together; only Magical Deflect against Physical spell-harm stops that. Ablative pools may hitch The Living Well or The Vessel That Drinks. Short clock ends at dawn if anything remains. Long clock ends at the next full moon if anything remains. Only magic or miracle ends it earlier."
 "PR05","Ritual Magic","Rite of the Temple Servitor","1d8","none","4 hours","A corpse given last office, and two worshippers paying stamina.","One or more sacred dead using +1 to all ratings per 5 points of result, or one special (fearless, silent tread, tireless grip, semblance of life, armored bones). Lasts until the next new moon if fed 5 stamina each dusk. Otherwise until you raise a new batch."
 "PR06","Ritual Magic","High Working of the Guardian Beast","1d20 (minimum 6 ranks)","none","6 hours","A living beast as clay, and four worshippers paying in, or a rare relic.","One guardian beast. Split the result equally across Physique, Strength, Constitution, Agility, Dexterity, Intellect, Intuition, Magic, Bravery, Willpower, Charisma, Attraction, Hide, Instinct, Base Damage, Movement, and the beast's Stamina. Drop remainder. Feed 5 stamina at dusk or it lasts only until the new moon."
 "PR07","Ritual Magic","Extirpate the Unholy","1d10","Magic — only if the target working's caster has Focus in a higher band than yours","10 minutes","Salt, iron, running water, or holy oil on the site.","End one lasting magical or unholy effect you can see or touch, including workings that last until magic or miracle. The result must at least match the original working's result, or the original ranks times 4 if that result is unknown."
-"PR08","Ritual Magic","The Hallowed Sanctum","1d10","none","3 hours","Four walls and a roof, and two worshippers paying stamina.","One room or small house. Split the result between ablative Physical Soak (hours equal to ranks) and Magical Soak against information magic and spirit-entry (full value, rounds equal to ranks). A Living Well or Vessel That Drinks may hitch to the Physical pool only."
+"PR08","Ritual Magic","The Hallowed Sanctum","1d10","none","3 hours","Four walls and a roof, and two worshippers paying stamina.","One room or small house. Split the result between ablative Physical Deflect (hours equal to ranks) and Magical Deflect against information magic and spirit-entry (full value, rounds equal to ranks). A Living Well or Vessel That Drinks may hitch to the Physical pool only."
 "PR09","Ritual Magic","Far Prayer","1d12","none","1 hour","A token the listener has touched, or their true name spoken on consecrated ground.","Speak to one known living creature within a number of miles equal to the result. They hear you for a number of minutes equal to ranks. You do not see them."
-"PR10","Ritual Magic","The Standing Threshold","1d20","none","dusk to dusk","Two prepared doorways on consecrated ground, a living well, and 20 Physical from willing donors total or a dozen laborers paying 5 each.","Two marked doorways open onto each other. Anyone you permit may pass. Give the result to the gate as ablative Physical Soak against smash (hours equal to ranks) or Magical Soak against spell-twist (full value, rounds equal to ranks). Lasts until that defense is gone, or until magic or miracle closes the gate."
+"PR10","Ritual Magic","The Standing Threshold","1d20","none","dusk to dusk","Two prepared doorways on consecrated ground, a living well, and 20 Physical from willing donors total or a dozen laborers paying 5 each.","Two marked doorways open onto each other. Anyone you permit may pass. Give the result to the gate as ablative Physical Deflect against smash (hours equal to ranks) or Magical Deflect against spell-twist (full value, rounds equal to ranks). Lasts until that defense is gone, or until magic or miracle closes the gate."
 "PH01","Healing","Balm of the Open Hand","1d4","none","","","Touch a living creature. Restore Physical equal to the result, up to their usual cap. Extra living targets split the result. This is true healing, not a transfer. Instant."
 "PH02","Healing","Litany of the Walking Wound","1d4","none","","","Willing living creatures within 30 feet. Split the result as restored Physical, up to each cap. Instant."
 "PH03","Healing","The Closed Cut","1d6","none","","","Touch a living creature. Restore Physical equal to the result and stop ordinary bleeding. Extra targets split the result. Instant."
@@ -1065,16 +1098,16 @@ const MIRACLE_CSV = `"id","school","name","cost","defy","clock","crutch","full_d
 "PC08","Curing","The Scouring of Plague","1d12","none","","","Living creatures within 30 feet, up to ranks of them. End one named mundane plague or infection in each. Magical plague requires the result to match or beat the laying working. Instant."
 "PC09","Curing","Break the Lasting Hex","1d12","Magic — only if the hex-layer's Focus is in a higher band than yours","","","One visible creature or object within 30 feet. End a lasting magical hex, geas, or blight, including those that last until magic or miracle. The result must match or beat the original result. Instant."
 "PC10","Curing","Miracle of the Whole Flesh","1d20","none","","","Touch a living creature. End all mundane poison, disease, blindness, deafness, and fever on them, and one magical curse whose result this matches or beats. Instant."
-"PW01","Warding","Circle of the Humble Threshold","1d4","none","","","Willing creatures, objects, mounts, wagons, or one doorway within 30 feet. Split the result. Each subject gains Physical Soak equal to their share. Ablative. Lasts a number of hours equal to ranks spent. Stops weapons, falls, claws, weather, ordinary fire. Does not stop Attack-school miracles or spells. Only magic or miracle ends it early."
-"PW02","Warding","Litany Against the Blade","1d6","none","","","Willing creatures within 30 feet. Split the result. Magical Soak against Physical spell-harm and Physical miracle-harm equal to each share. Full value, does not shrink. Lasts a number of rounds equal to ranks spent."
-"PW03","Warding","Veil of the Quiet Heart","1d6","none","","","Willing creatures within 30 feet. Split the result. Mental Soak equal to each share. Ablative. Lasts a number of hours equal to ranks spent. Does not lift Control already in effect. Only magic or miracle ends it early."
-"PW04","Warding","Ward of the Named House","1d8","none","","","One building you stand in. Magical Soak against Physical spell-harm and miracle-harm equal to the result. Full value. Lasts a number of rounds equal to ranks spent."
-"PW05","Warding","The Closed Grave-Line","1d8","none","","","A line or circle 5 feet per point of the result. Undead that try to cross take Physical harm equal to the result, split if several cross together. Only Magical Soak against Physical spell-harm stops that. The line lasts a number of rounds equal to ranks. Ancillary: an undead that takes harm is shoved back 5 feet."
-"PW06","Warding","Pall of Sacred Blood","1d10","none","","","Willing creatures within 30 feet. Split the result. Physical Soak equal to each share. Ablative. Lasts hours equal to ranks. Stops mundane Physical harm and Physical spell-harm. Only magic or miracle ends it early."
-"PW07","Warding","The Spirit-Bar","1d10","none","","","Willing creatures within 30 feet. Split the result. Magical Soak against spirit-entry, possession, and information magic equal to each share. Full value. Lasts a number of rounds equal to ranks spent."
-"PW08","Warding","Sanctuary of the Deep Breath","1d12","none","","","Willing creatures within 30 feet. Split the result. Physical Soak equal to each share, usable only against drowning, smoke, vacuum, and mundane poison. Ablative. Lasts hours equal to ranks."
-"PW09","Warding","Wardpact of the Holy March","1d12","none","","","A road, bridge, or trail you stand on, up to 10 feet of length per point of the result. Anyone you name who stays on that stretch shares one Physical Soak pool equal to the result. Ablative. Lasts hours equal to ranks."
-"PW10","Warding","Consecration of the Parish","1d20","none","","","One building, or a circuit of buildings you can walk in an hour. Split the result among those structures as ablative Physical Soak (hours equal to ranks) or keep it as one Magical Soak on the whole circuit (full value, rounds equal to ranks). Say which when you finish. A Living Well or Vessel That Drinks may hitch to an ablative setting."
+"PW01","Warding","Circle of the Humble Threshold","1d4","none","","","Willing creatures, objects, mounts, wagons, or one doorway within 30 feet. Split the result. Each subject gains Physical Deflect equal to their share. Ablative. Lasts a number of hours equal to ranks spent. Stops weapons, falls, claws, weather, ordinary fire. Does not stop Attack-school miracles or spells. Only magic or miracle ends it early."
+"PW02","Warding","Litany Against the Blade","1d6","none","","","Willing creatures within 30 feet. Split the result. Magical Deflect against Physical spell-harm and Physical miracle-harm equal to each share. Full value, does not shrink. Lasts a number of rounds equal to ranks spent."
+"PW03","Warding","Veil of the Quiet Heart","1d6","none","","","Willing creatures within 30 feet. Split the result. Mental Deflect equal to each share. Ablative. Lasts a number of hours equal to ranks spent. Does not lift Control already in effect. Only magic or miracle ends it early."
+"PW04","Warding","Ward of the Named House","1d8","none","","","One building you stand in. Magical Deflect against Physical spell-harm and miracle-harm equal to the result. Full value. Lasts a number of rounds equal to ranks spent."
+"PW05","Warding","The Closed Grave-Line","1d8","none","","","A line or circle 5 feet per point of the result. Undead that try to cross take Physical harm equal to the result, split if several cross together. Only Magical Deflect against Physical spell-harm stops that. The line lasts a number of rounds equal to ranks. Ancillary: an undead that takes harm is shoved back 5 feet."
+"PW06","Warding","Pall of Sacred Blood","1d10","none","","","Willing creatures within 30 feet. Split the result. Physical Deflect equal to each share. Ablative. Lasts hours equal to ranks. Stops mundane Physical harm and Physical spell-harm. Only magic or miracle ends it early."
+"PW07","Warding","The Spirit-Bar","1d10","none","","","Willing creatures within 30 feet. Split the result. Magical Deflect against spirit-entry, possession, and information magic equal to each share. Full value. Lasts a number of rounds equal to ranks spent."
+"PW08","Warding","Sanctuary of the Deep Breath","1d12","none","","","Willing creatures within 30 feet. Split the result. Physical Deflect equal to each share, usable only against drowning, smoke, vacuum, and mundane poison. Ablative. Lasts hours equal to ranks."
+"PW09","Warding","Wardpact of the Holy March","1d12","none","","","A road, bridge, or trail you stand on, up to 10 feet of length per point of the result. Anyone you name who stays on that stretch shares one Physical Deflect pool equal to the result. Ablative. Lasts hours equal to ranks."
+"PW10","Warding","Consecration of the Parish","1d20","none","","","One building, or a circuit of buildings you can walk in an hour. Split the result among those structures as ablative Physical Deflect (hours equal to ranks) or keep it as one Magical Deflect on the whole circuit (full value, rounds equal to ranks). Say which when you finish. A Living Well or Vessel That Drinks may hitch to an ablative setting."
 "PS01","Spirit","Whisper to the Near Shade","1d4","none","","","Speak to one visible spirit, ghost, or unbound dead within 30 feet. You understand each other for a number of minutes equal to the result. It is not forced to answer truly."
 "PS02","Spirit","The Kindled Lamp","1d4","none","","","You see spirits, unbound dead, and riding things within 10 feet per point of the result as pale lamps. Lasts a number of minutes equal to ranks."
 "PS03","Spirit","Query of the Unburied","1d6","none","","","Ask one short question of a spirit you can see. It answers literally if it knows. Enchanted or bound spirits may refuse unless the result is 8 or more."
@@ -1082,21 +1115,21 @@ const MIRACLE_CSV = `"id","school","name","cost","defy","clock","crutch","full_d
 "PS05","Spirit","The Anchored Soul","1d8","none","","","Willing living creatures within 30 feet, up to ranks of them. Each cannot be ridden or pulled from the body by spirit-work whose result is less than this result. Lasts hours equal to ranks. Only magic or miracle ends it early."
 "PS06","Spirit","Exorcism of the Riding Thing","1d8","Willpower — only if the rider's maker or the rider itself has Focus in a higher band than yours","","","One visible living creature within 30 feet. A spirit or dead thing riding them is expelled if this result matches or beats the working that seated it, or ranks times 4 if unknown. The host takes no harm from the expulsion."
 "PS07","Spirit","Communion of the Ancestor","1d10","none","","","Name a dead person whose name you know. If any shade of them can hear, they speak with you for a number of minutes equal to ranks. They are literal and limited to what they knew. Once per named dead per dawn."
-"PS08","Spirit","The Iron Name","1d10","Willpower, and only if you bought 8 or more ranks","","","One visible spirit within 60 feet. Mental harm equal to the result. Only Magical Soak against Mental harm reduces this. If its Mental track hits 0, it is bound to you for a number of rounds equal to the harm it took, and obeys non-suicidal commands. Ancillary: even if not bound, it takes -20% to its next hostile act."
+"PS08","Spirit","The Iron Name","1d10","Willpower, and only if you bought 8 or more ranks","","","One visible spirit within 60 feet. Mental harm equal to the result. Only Magical Deflect against Mental harm reduces this. If its Mental track hits 0, it is bound to you for a number of rounds equal to the harm it took, and obeys non-suicidal commands. Ancillary: even if not bound, it takes -20% to its next hostile act."
 "PS09","Spirit","Sending of the Lost","1d12","none","","","One willing spirit or unbound dead you can see is sent to rest. It will not haunt that place again unless called by a working of 1d12 or greater. Instant."
 "PS10","Spirit","The Great Unhousing","1d20","Willpower, and only if you bought 8 or more ranks","","","A 20-foot radius, point within 80 feet. Spirits and riding things in the radius split Mental harm equal to the result. Any dropped to 0 Mental are expelled and cannot re-enter a body in that radius until magic or miracle permits. Ancillary: living hosts are knocked prone but take no Physical harm from this."
 "PA01","Animism","Speech of Fur and Feather","1d4","none","","","You speak with mundane beasts within 30 feet. They answer as beasts answer: want, fear, scent, path. Lasts a number of minutes equal to the result."
 "PA02","Animism","The Watching Beast","1d4","none","","","One mundane beast you touch will watch a place or person and try to warn you by cry or return. Lasts a number of hours equal to the result, or until the beast is badly hurt."
 "PA03","Animism","Call of the Small Host","1d6","none","","","Mundane small beasts (birds, rats, insects in a swarm-mass) in a 20-foot radius within 60 feet do one simple task: scatter, gather, harry, or leave. Lasts a number of rounds equal to ranks."
 "PA04","Animism","Blessing of the Field","1d6","none","","","A plot of earth 5 feet on a side per point of the result. Crops, grass, or orchard in it grow as if given a good week, or a blight of result less than this is lifted. Instant for the blessing; the growth is ordinary after."
-"PA05","Animism","Pact of Tooth and Root","1d8","none","","","Willing visible creatures, split if several. Each ignores mundane harm from one named natural source: thorn, cold water, ordinary beast-bite, or exposure. This is not soak. Attack spells and miracles still harm them. Lasts a number of minutes equal to the result."
+"PA05","Animism","Pact of Tooth and Root","1d8","none","","","Willing visible creatures, split if several. Each ignores mundane harm from one named natural source: thorn, cold water, ordinary beast-bite, or exposure. This is not deflect. Attack spells and miracles still harm them. Lasts a number of minutes equal to the result."
 "PA06","Animism","The River Asked","1d8","none","","","Touch a river, spring, or standing water. Ask one question it could have witnessed in the last day, or bid it do one small act: rise a foot, still a ford, or yield a bucket per point of the result. Enchanted water does not obey."
 "PA07","Animism","Skin of the Cousin","1d10","none","","","A willing living creature becomes one mundane animal no larger than themselves. Gear melds. Speech or a killing blow ends it. Lasts a number of minutes equal to the result, split if several willing targets."
 "PA08","Animism","The Green Road","1d10","none","","","You and willing creatures within 30 feet move through undergrowth, shallow water, and broken ground at full speed. Lasts a number of hours equal to ranks. You may name a number of extra bodies up to ranks."
 "PA09","Animism","Totem of the Standing Kin","1d12","none","","","Mark a carved post, tree, or stone you touch. Mundane beasts of one named kind within 10 feet per point of the result treat it as home and will not hunt those you name while they stay within that reach. Lasts until magic or miracle takes it off, or until the mark is destroyed."
 "PA10","Animism","The Land Made Answer","1d20","none","","","Natural earth, stone, root, and water in a number of 5-foot cubes equal to the result, within 100 feet, move or reshape as you ask at the end of the round. If the shape would stand without miracle, it remains as ordinary land. If not, it holds until magic or miracle takes it off. This will not work on forged metal or enchanted ground."
-"PR11","Ritual Magic","The Offered Well","1d8","none","10 minutes","A bowl, font, pit, or marked stone, and at least one willing living creature (you may be that creature).","Name living creatures you can see or touch, up to one per Priest Focus. Each must speak assent during the clock. Silence, fear, or a nod under a blade is not assent. If they take the words back before the clock ends, they are not bound. There are no unwilling targets. A volunteer names how much stamina the well may take, up to what they have. They may also say whether the well may continue into Physical damage when their stamina is gone. If they do not say yes to that, the well cannot cut them; it skips them and moves to the next volunteer who still has stake left. Hitch the well to one standing working that uses an ablative pool. Magical Soak cannot drink this well. When the hitch is struck: take stamina from volunteers who still have stake, split as they agreed (even split if no one said otherwise); a volunteer at 0 stamina who agreed to life remains bound and further drain on them is Physical damage (Physical Soak can reduce it, Magical Soak cannot); a volunteer at 0 stamina who did not agree to life is skipped; then the hitch working's own ablative pool; then the hitch working ends. Any volunteer may leave by saying so, or by walking out of binding. When any volunteer leaves or dies, the whole well ends and every other volunteer is freed. Magic or miracle also breaks it. A person can stand in only one well. Each drain is obvious. Stamina-loss is exhaustion. Physical drain is injury. At 0 Physical they fall as from any other wound. Lasts as long as the hitch lasts, or until a volunteer leaves or dies, whichever comes first. Failed clock: a Magic check returns half the stamina you spent. No one is bound."
-"PR12","Ritual Magic","The Vessel of Offered Life","1d12","none","dusk to dusk","One finished object — bowl, cup, ring, relic-bone, door-iron — and at least one willing living creature bound at the close (you may be that creature).","The object becomes a magic item: a vessel of offered life. It does nothing until you hitch it to an ablative pool. Magical Soak cannot drink from it. When the clock ends, name living creatures you can see or touch, up to one per Priest Focus, including the required volunteer. Each must speak assent. They bind to the item, not to the ground. No one can be bound who did not speak. There are no unwilling targets. A volunteer names how much stamina the item may take. They may also permit Physical drain after stamina is gone. If they refuse that, the item never cuts them. While hitched, blows against that hitch drain in this order: (1) stamina from volunteers still on the item, split as agreed; (2) Physical damage only from those who permitted life (Physical Soak can reduce it, Magical Soak cannot); (3) then the hitch's own ablative pool; (4) then the hitch ends. The item remains. Hitch it again as a main action if a willing creature is still bound to it. The item can be carried. Distance does not free anyone. The result is the hold: the most stamina-and-then-Physical the item can pull in a single blow. Demand above the hold goes straight to the hitch pool. This item-working ends when any volunteer bound to the item leaves or dies. Leave means they say they are done, or you release them. Everyone is freed. The object is still a vessel, empty of people and hitch. Magic or miracle unmaking the enchantment, or destroying the object, also frees everyone. The object stays a vessel until magic, miracle, or destruction. The bindings last only while a volunteer remains bound. Failed clock: a Magic check returns half the stamina you spent. The object is ordinary. No one is bound."`;
+"PR11","Ritual Magic","The Offered Well","1d8","none","10 minutes","A bowl, font, pit, or marked stone, and at least one willing living creature (you may be that creature).","Name living creatures you can see or touch, up to one per Priest Focus. Each must speak assent during the clock. Silence, fear, or a nod under a blade is not assent. If they take the words back before the clock ends, they are not bound. There are no unwilling targets. A volunteer names how much stamina the well may take, up to what they have. They may also say whether the well may continue into Physical damage when their stamina is gone. If they do not say yes to that, the well cannot cut them; it skips them and moves to the next volunteer who still has stake left. Hitch the well to one standing working that uses an ablative pool. Magical Deflect cannot drink this well. When the hitch is struck: take stamina from volunteers who still have stake, split as they agreed (even split if no one said otherwise); a volunteer at 0 stamina who agreed to life remains bound and further drain on them is Physical damage (Physical Deflect can reduce it, Magical Deflect cannot); a volunteer at 0 stamina who did not agree to life is skipped; then the hitch working's own ablative pool; then the hitch working ends. Any volunteer may leave by saying so, or by walking out of binding. When any volunteer leaves or dies, the whole well ends and every other volunteer is freed. Magic or miracle also breaks it. A person can stand in only one well. Each drain is obvious. Stamina-loss is exhaustion. Physical drain is injury. At 0 Physical they fall as from any other wound. Lasts as long as the hitch lasts, or until a volunteer leaves or dies, whichever comes first. Failed clock: a Magic check returns half the stamina you spent. No one is bound."
+"PR12","Ritual Magic","The Vessel of Offered Life","1d12","none","dusk to dusk","One finished object — bowl, cup, ring, relic-bone, door-iron — and at least one willing living creature bound at the close (you may be that creature).","The object becomes a magic item: a vessel of offered life. It does nothing until you hitch it to an ablative pool. Magical Deflect cannot drink from it. When the clock ends, name living creatures you can see or touch, up to one per Priest Focus, including the required volunteer. Each must speak assent. They bind to the item, not to the ground. No one can be bound who did not speak. There are no unwilling targets. A volunteer names how much stamina the item may take. They may also permit Physical drain after stamina is gone. If they refuse that, the item never cuts them. While hitched, blows against that hitch drain in this order: (1) stamina from volunteers still on the item, split as agreed; (2) Physical damage only from those who permitted life (Physical Deflect can reduce it, Magical Deflect cannot); (3) then the hitch's own ablative pool; (4) then the hitch ends. The item remains. Hitch it again as a main action if a willing creature is still bound to it. The item can be carried. Distance does not free anyone. The result is the hold: the most stamina-and-then-Physical the item can pull in a single blow. Demand above the hold goes straight to the hitch pool. This item-working ends when any volunteer bound to the item leaves or dies. Leave means they say they are done, or you release them. Everyone is freed. The object is still a vessel, empty of people and hitch. Magic or miracle unmaking the enchantment, or destroying the object, also frees everyone. The object stays a vessel until magic, miracle, or destruction. The bindings last only while a volunteer remains bound. Failed clock: a Magic check returns half the stamina you spent. The object is ordinary. No one is bound."`;
 
 const MIRACLES = parseCsvWithHeader(MIRACLE_CSV).map((r) => ({
   id: r.id,
@@ -1162,34 +1195,34 @@ function toggleMiracleLearned(character, miracle) {
 
 const EQUIPMENT_CSV = `"Item","Type","Description","weight(lbs)","cost(GT)"
 "Dagger","weapons","Short blade for close work and throwing.","1","2"
-"Knife, utility","weapons","Camp and kitchen knife, poor as a weapon.","0.5","0.5"
+"Knife","weapons","Camp and kitchen knife, poor as a weapon.","0.5","0.5"
 "Shortsword","weapons","One-handed blade for tight halls.","3","8"
-"Arming sword","weapons","Standard one-handed knight's sword.","4","15"
-"Longsword","weapons","Hand-and-a-half blade.","5","25"
-"Greatsword","weapons","Two-handed cutting sword.","8","40"
+"Sword Arming","weapons","Standard one-handed knight's sword.","4","15"
+"Sword Long","weapons","Hand-and-a-half blade.","5","25"
+"Sword Great","weapons","Two-handed cutting sword.","8","40"
 "Hand axe","weapons","One-handed axe; also splits kindling.","3","5"
 "Battleaxe","weapons","Heavy one- or two-handed war axe.","6","12"
 "Greataxe","weapons","Two-handed executioner's axe.","10","25"
 "Mace","weapons","Flanged crushing head.","5","8"
-"Warhammer","weapons","Pick and face for mail and plate.","5","12"
+"WarHammer","weapons","Pick and face for mail and plate.","5","12"
 "Maul","weapons","Two-handed hammer.","12","15"
-"Spear","weapons","Thrusting shaft, 6–7 feet.","6","4"
+"Spear Short","weapons","Thrusting shaft, 6–7 feet.","6","4"
 "Pike","weapons","Long formation spear, awkward indoors.","12","8"
 "Halberd","weapons","Axe-blade, hook, and point on a pole.","12","15"
 "Quarterstaff","weapons","Hardwood staff.","4","0.2"
 "Club","weapons","Simple bludgeon.","3","0.1"
-"Morningstar","weapons","Spiked striking head.","6","12"
+"Morning Star","weapons","Spiked striking head.","6","12"
 "Flail","weapons","Hinged striking head; ignores some shields in close.","6","10"
 "Rapier","weapons","Thrusting civilian blade.","2","20"
 "Scimitar","weapons","Curved slashing blade.","3","18"
 "Hand crossbow","weapons","One-handed light crossbow.","3","30"
-"Light crossbow","weapons","Standard spanned bow.","6","20"
-"Heavy crossbow","weapons","Slow, hard-hitting spanned bow.","12","40"
-"Shortbow","weapons","Hunting bow.","2","12"
+"Light Crossbow","weapons","Standard spanned bow.","6","20"
+"Heavy Crossbow","weapons","Slow, hard-hitting spanned bow.","12","40"
+"Short Bow","weapons","Hunting bow.","2","12"
 "Longbow","weapons","War bow; needs room to draw.","3","30"
 "Sling","weapons","Leather pouch and cords.","0.2","0.1"
-"Javelin","weapons","Light throwing spear.","2","1"
-"Throwing axe","weapons","Balanced hatchet.","2","3"
+"Javelin thrown","weapons","Light throwing spear.","2","1"
+"Axe Thrown","weapons","Balanced hatchet.","2","3"
 "Arrows (20)","weapons","Sheaf for bows.","2","1"
 "Quarrels (20)","weapons","Bolts for crossbows.","2","1.5"
 "Sling bullets (20)","weapons","Lead or baked clay.","2","0.2"
@@ -1197,7 +1230,7 @@ const EQUIPMENT_CSV = `"Item","Type","Description","weight(lbs)","cost(GT)"
 "Darts (20)","weapons","Blowgun or throwing darts.","1","1"
 "Whip","weapons","Long lash.","2","2"
 "Man-catcher","weapons","Forked capture pole.","8","12"
-"Net, fighting","weapons","Entangling net.","6","5"
+"Fighting Net","weapons","Entangling net.","6","5"
 "Caltrops (bag)","weapons","Enough to cover 5 feet.","2","1"
 "Padded jack","armor","Quilted cloth armor.","8","5"
 "Leather jerkin","armor","Boiled or layered leather.","10","10"
@@ -1371,30 +1404,96 @@ const EQUIPMENT = parseCsvWithHeader(EQUIPMENT_CSV).map((r) => ({
 // Category tabs, in first-appearance order (weapons, armor, general).
 const EQUIPMENT_TYPES = [...new Set(EQUIPMENT.map((e) => e.type))];
 
+// Each owned item is { quantity, equipped, carried } — Equipped and Carried
+// are independent player-set flags (checked in the Purchase popup) that
+// together decide what shows up in the Equipped panel and counts toward
+// carried weight. An item owned but neither equipped nor carried is left
+// behind (e.g. at home/storage) and doesn't count toward either.
+function getEquipmentEntry(character, item) {
+  return character.equipmentOwned[item.name] || null;
+}
+
 function getEquipmentQuantity(character, item) {
-  return character.equipmentOwned[item.name] || 0;
+  const entry = getEquipmentEntry(character, item);
+  return entry ? entry.quantity : 0;
+}
+
+function isEquipmentEquipped(character, item) {
+  const entry = getEquipmentEntry(character, item);
+  return !!(entry && entry.equipped);
+}
+
+function isEquipmentCarried(character, item) {
+  const entry = getEquipmentEntry(character, item);
+  return !!(entry && entry.carried);
+}
+
+function setEquipmentEquipped(character, item, value) {
+  const entry = character.equipmentOwned[item.name];
+  if (entry) entry.equipped = value;
+}
+
+function setEquipmentCarried(character, item, value) {
+  const entry = character.equipmentOwned[item.name];
+  if (entry) entry.carried = value;
 }
 
 function getEquipmentOwnedEntries(character) {
   return EQUIPMENT
     .filter((item) => getEquipmentQuantity(character, item) > 0)
-    .map((item) => ({ item, quantity: getEquipmentQuantity(character, item) }))
+    .map((item) => {
+      const entry = character.equipmentOwned[item.name];
+      return { item, quantity: entry.quantity, equipped: !!entry.equipped, carried: !!entry.carried };
+    })
     .sort((a, b) => a.item.name.localeCompare(b.item.name));
 }
 
+// Owned entries that are actually Equipped or Carried, optionally narrowed
+// to one EQUIPMENT type (weapons/armor/general) — the shared filter behind
+// the Equipped panel's armor and general tables (and the weight total).
+function getWornEquipmentEntries(character, type) {
+  return getEquipmentOwnedEntries(character)
+    .filter(({ equipped, carried }) => equipped || carried)
+    .filter(({ item }) => !type || item.type === type);
+}
+
 function addEquipmentItem(character, item) {
-  character.equipmentOwned[item.name] = getEquipmentQuantity(character, item) + 1;
+  const entry = character.equipmentOwned[item.name];
+  if (entry) entry.quantity += 1;
+  else character.equipmentOwned[item.name] = { quantity: 1, equipped: false, carried: false };
 }
 
 function removeEquipmentItem(character, item) {
-  const next = getEquipmentQuantity(character, item) - 1;
-  if (next > 0) character.equipmentOwned[item.name] = next;
+  const entry = character.equipmentOwned[item.name];
+  if (!entry) return;
+  if (entry.quantity > 1) entry.quantity -= 1;
   else delete character.equipmentOwned[item.name];
 }
 
 function getEquipmentSpentGT(character) {
   return EQUIPMENT.reduce((sum, item) => sum + item.cost * getEquipmentQuantity(character, item), 0);
 }
+
+// Total weight of everything actually Equipped or Carried — items merely
+// owned (left behind) don't add to it.
+function getCarriedEquipmentWeightTotal(character) {
+  return getWornEquipmentEntries(character).reduce((sum, { item, quantity }) => sum + item.weight * quantity, 0);
+}
+
+// Carried/Equipped weapons-category purchases, resolved to their matching
+// MELEE_WEAPONS/RANGED_WEAPONS skill entry (every shop weapon name is kept
+// in sync with the skill CSVs, so this lookup is a direct name match) — this
+// is what feeds the Equipped panel's weapon tables, reusing the exact same
+// rank/Target machinery as the Buy Weapon Skills popup.
+function getWornWeapons(character, category) {
+  const skillList = category === 'melee' ? MELEE_WEAPONS : RANGED_WEAPONS;
+  const bySkillName = new Map(skillList.map((w) => [w.name, w]));
+  return getWornEquipmentEntries(character, 'weapons')
+    .map(({ item }) => bySkillName.get(item.name))
+    .filter(Boolean)
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
 
 // Coinage (data/coinage.txt): 1 Golden Royal = 5 Gold Dragons = 50 Gold
 // Talons; 1 Gold Talon = 1 Silver Fang = 10 Silver Chips = 100 Coppers.
@@ -1413,8 +1512,35 @@ function getWealthInGT(character) {
   return COINAGE.reduce((sum, coin) => sum + (Number(character.coinage[coin.id]) || 0) * coin.valueInGT, 0);
 }
 
-function getEquipmentRemainingGT(character) {
-  return getWealthInGT(character) - getEquipmentSpentGT(character);
+// Wallet value in copper (the smallest unit — 1 cp = 1) so purchases can be
+// deducted/refunded as whole coins without floating-point drift.
+function getWalletCopper(character) {
+  return COINAGE.reduce((sum, coin) => sum + (Number(character.coinage[coin.id]) || 0) * coin.valueInGT * 100, 0);
+}
+
+// Rebuilds the wallet from a total-copper value as a canonical largest-
+// denomination-first breakdown, merging the Gold Talon/Silver Fang tie into
+// Gold Talon — this is what actually "makes change" (breaking or combining
+// coins) whenever a purchase or refund changes the wallet's total value.
+function setWalletFromCopper(character, totalCopper) {
+  let remaining = Math.max(0, Math.round(totalCopper));
+  character.coinage.gr = Math.floor(remaining / 5000); remaining -= character.coinage.gr * 5000;
+  character.coinage.gd = Math.floor(remaining / 1000); remaining -= character.coinage.gd * 1000;
+  character.coinage.gt = Math.floor(remaining / 100); remaining -= character.coinage.gt * 100;
+  character.coinage.sf = 0;
+  character.coinage.sc = Math.floor(remaining / 10); remaining -= character.coinage.sc * 10;
+  character.coinage.cp = remaining;
+}
+
+// Deducts costGT worth of value from the wallet — never goes negative; a
+// cost that exceeds total wealth just empties the wallet.
+function spendFromCoinage(character, costGT) {
+  setWalletFromCopper(character, getWalletCopper(character) - Math.round(costGT * 100));
+}
+
+// Adds valueGT worth of value back to the wallet (e.g. un-buying an item).
+function refundToCoinage(character, valueGT) {
+  setWalletFromCopper(character, getWalletCopper(character) + Math.round(valueGT * 100));
 }
 
 // Points a class has earned that haven't been spent yet on a Skill, Weapon
@@ -1724,8 +1850,11 @@ window.VennRPG = {
   CASTING_STAT_GROUP, getMagicCasting, getMiracleCasting, VITALS_STATS,
   STAMINA_COST_ITEMS, getStaminaCostTotal,
   EQUIPMENT, EQUIPMENT_TYPES, getEquipmentQuantity, getEquipmentOwnedEntries,
+  isEquipmentEquipped, isEquipmentCarried, setEquipmentEquipped, setEquipmentCarried,
+  getWornEquipmentEntries, getCarriedEquipmentWeightTotal,
+  getWornWeapons,
   addEquipmentItem, removeEquipmentItem, getEquipmentSpentGT,
-  COINAGE, getWealthInGT, getEquipmentRemainingGT,
+  COINAGE, getWealthInGT, spendFromCoinage, refundToCoinage,
   rollAttribute, createDefaultCharacter, clamp, roundUp,
 };
 

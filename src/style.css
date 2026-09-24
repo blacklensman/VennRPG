@@ -441,6 +441,11 @@ button.secondary:hover {
   .weapons-tables { grid-template-columns: 1fr; }
 }
 
+/* Equipped panel stacks Ranged beneath Melee instead of side-by-side. */
+.equipped-weapons-tables {
+  grid-template-columns: 1fr;
+}
+
 .weapons-table-wrap {
   overflow-x: auto;
 }
@@ -758,9 +763,13 @@ button.secondary:hover {
 }
 
 .equipment-owned-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+}
+
+@media (max-width: 560px) {
+  .equipment-owned-list { grid-template-columns: 1fr; }
 }
 
 .equipment-owned-row {
@@ -821,11 +830,6 @@ button.secondary:hover {
 .equipment-wealth-summary {
   margin-bottom: 12px;
   font-size: 0.85rem;
-}
-
-.equipment-wealth-summary .equipment-remaining-negative {
-  color: #e08585;
-  font-weight: 700;
 }
 
 .equipment-modal-list {
@@ -897,4 +901,61 @@ button.secondary:hover {
   min-width: 1.5em;
   text-align: center;
   font-size: 0.9rem;
+}
+
+.equipment-condition-flags {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.equipment-condition-flags label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.equipment-condition-flags input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.equipment-condition-flags input[type="checkbox"]:disabled {
+  cursor: default;
+}
+
+.equipment-owned-condition {
+  color: var(--text-dim);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+/* Equipped panel */
+
+.equipped-weapons-table th, .equipped-weapons-table td,
+.equipped-armor-table th, .equipped-armor-table td,
+.equipped-general-table th, .equipped-general-table td {
+  white-space: nowrap;
+}
+
+.equipped-weapons-table .weapon-name-cell,
+.equipped-armor-table td:first-child,
+.equipped-general-table td:first-child {
+  white-space: normal;
+}
+
+.equipped-condition-cell {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+}
+
+.equipped-empty-row td {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  padding: 10px 12px;
 }
