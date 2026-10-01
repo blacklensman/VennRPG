@@ -18,9 +18,14 @@ const {
   getSpecialTierCount, getSpecialsOwnedCount, canAcquireSpecial,
   SPELLS, SPELL_SCHOOLS, hasSpellAccess, isSpellLearned, toggleSpellLearned,
   getSpellSlotCount, getSpellSlotCountForRank, getSpellsLearnedCount, canLearnSpell,
+  meetsCastingDotsRequirement,
   MIRACLES, MIRACLE_SCHOOLS, hasMiracleAccess, isMiracleLearned, toggleMiracleLearned,
   getMiracleSlotCount, getMiracleSlotCountForRank, getMiraclesLearnedCount, canLearnMiracle,
-  getClassPointsUsed, getClassPointsAvailable, getClassPointsTotal, getClassRankMultiplier,
+  getClassRankMultiplier, isWeaponSkillEntry,
+  getClassWeaponPointsUsed, getClassSkillPointsUsed,
+  getClassWeaponPointsTotal, getClassSkillPointsTotal,
+  getClassWeaponPointsAvailable, getClassSkillPointsAvailable,
+  getSkillPointsAvailable, hasUnspentClassDots, setClassDotsForClass,
   COMBAT_STAT_GROUP, getBaseDefense, getArmoredDefenseTotal, CASTING_STAT_GROUP, VITALS_STATS,
   STAMINA_COST_ITEMS, getStaminaCostTotal,
   EQUIPMENT, EQUIPMENT_TYPES, getEquipmentQuantity, getEquipmentOwnedEntries,
@@ -118,8 +123,6 @@ const el = {
   loadBtn: document.getElementById('loadBtn'),
   loadInput: document.getElementById('loadInput'),
   coinageList: document.getElementById('coinageList'),
-  equipmentBody: document.getElementById('equipmentBody'),
-  equipmentCollapseToggle: document.getElementById('equipmentCollapseToggle'),
   buyEquipmentBtn: document.getElementById('buyEquipmentBtn'),
   equipmentSummary: document.getElementById('equipmentSummary'),
   equipmentOwnedList: document.getElementById('equipmentOwnedList'),
@@ -555,8 +558,8 @@ function buildEquippedWeaponRow(weapon, category) {
   targetCell.textContent = getWeaponTarget(character, category, weapon.name);
   targetCell.title = `Base Attack + (${getWeaponRate(character, category, weapon.name)} * rank)`;
 
-  const bCell = document.createElement('td');
-  bCell.textContent = weapon.blunt;
+  const iCell = document.createElement('td');
+  iCell.textContent = weapon.impact;
   const sCell = document.createElement('td');
   sCell.textContent = weapon.slash;
   const pCell = document.createElement('td');
@@ -575,7 +578,7 @@ function buildEquippedWeaponRow(weapon, category) {
   row.appendChild(attrCell);
   row.appendChild(rofCell);
   row.appendChild(targetCell);
-  row.appendChild(bCell);
+  row.appendChild(iCell);
   row.appendChild(sCell);
   row.appendChild(pCell);
   row.appendChild(eCell);
@@ -607,7 +610,7 @@ function renderEquippedArmorTable() {
     const row = document.createElement('tr');
     row.className = 'equipped-empty-row';
     const cell = document.createElement('td');
-    cell.colSpan = 6;
+    cell.colSpan = 11;
     cell.textContent = 'No armor equipped or carried.';
     row.appendChild(cell);
     el.equippedArmorBody.appendChild(row);
@@ -626,6 +629,11 @@ function renderEquippedArmorTable() {
     weightCell.textContent = `${formatWeight(item.weight * quantity)} lb`;
     const costCell = document.createElement('td');
     costCell.textContent = `${formatGT(item.cost * quantity)} GT`;
+    const slashCell = document.createElement('td');
+    const impactCell = document.createElement('td');
+    const pierceCell = document.createElement('td');
+    const energyCell = document.createElement('td');
+    const ballisticCell = document.createElement('td');
     const conditionCell = document.createElement('td');
     conditionCell.className = 'equipped-condition-cell';
     conditionCell.textContent = conditionLabel(equipped, carried);
@@ -635,6 +643,11 @@ function renderEquippedArmorTable() {
     row.appendChild(qtyCell);
     row.appendChild(weightCell);
     row.appendChild(costCell);
+    row.appendChild(slashCell);
+    row.appendChild(impactCell);
+    row.appendChild(pierceCell);
+    row.appendChild(energyCell);
+    row.appendChild(ballisticCell);
     row.appendChild(conditionCell);
     el.equippedArmorBody.appendChild(row);
   });
@@ -694,8 +707,10 @@ function refreshDerived() {
 }
 
 // Class dots and spent points feed each other (spending locks class dots,
-// changing class dots changes available points), so all panels that touch
-// the shared point pool are re-rendered together.
+// changing class dots changes available points in both the Weapon and Skill
+// pools, and a class rank can't be bought while either pool has an unspent
+// dot anywhere), so all panels that touch either pool are re-rendered
+// together.
 function refreshPointsPanels() {
   renderClasses();
   renderSkills();
@@ -725,12 +740,19 @@ function renderTabBar(container, tabNames, getActive, setActive, onSelect) {
 
 // Points summary line for a resolved spending class (which may differ from
 // the displayed tab for General/Race, since those aren't a single class).
+// Weapon dots and Skill dots are two separate pools now (a Mage/Priest
+// Spell:/Miracle: Skill spends from the Weapon pool, everything else from
+// the Skill pool) — shown side by side since a Skills-panel tab can contain
+// both kinds of entry at once.
 function renderPointsSummary(container, cls, note) {
-  const used = getClassPointsUsed(character, cls);
-  const total = getClassPointsTotal(character, cls);
-  const available = getClassPointsAvailable(character, cls);
+  const weaponAvailable = getClassWeaponPointsAvailable(character, cls);
+  const weaponTotal = getClassWeaponPointsTotal(character, cls);
+  const weaponUsed = getClassWeaponPointsUsed(character, cls);
+  const skillAvailable = getClassSkillPointsAvailable(character, cls);
+  const skillTotal = getClassSkillPointsTotal(character, cls);
+  const skillUsed = getClassSkillPointsUsed(character, cls);
   const lead = note ? `${note} (spending ${cls} points)` : `${cls} points`;
-  container.textContent = `${lead} — Available: ${available}   Used: ${used} / ${total}`;
+  container.textContent = `${lead} — Weapon dots: ${weaponAvailable} available (${weaponUsed}/${weaponTotal} used)   Skill dots: ${skillAvailable} available (${skillUsed}/${skillTotal} used)`;
 }
 
 // One rank dot: below the auto-granted floor it's always locked; above the
@@ -813,11 +835,11 @@ function renderSkillBox(container, skill, spendClass) {
     autoMin: getSkillAutoMinRank(character, skill),
     spentTotal: getSkillSpentRank(character, skill),
     ownSpend: getSkillClassSpend(character, skill, spendClass),
-    available: getClassPointsAvailable(character, spendClass),
+    available: getSkillPointsAvailable(character, skill, spendClass),
     autoTitle: `Automatic (${character.race} race or ${character.focus} Focus bonus)`,
-    noPointsTitle: `No ${spendClass} points available`,
+    noPointsTitle: `No ${spendClass} ${isWeaponSkillEntry(skill) ? 'weapon' : 'skill'} dots available`,
     otherClassTitle: `Funded by another class — switch to that class's tab to refund`,
-    buyTitle: (dotIndex) => `Set ${skill.name} to rank ${dotIndex} (spends a ${spendClass} point)`,
+    buyTitle: (dotIndex) => `Set ${skill.name} to rank ${dotIndex} (spends a ${spendClass} ${isWeaponSkillEntry(skill) ? 'weapon' : 'skill'} dot)`,
     onToggle: (dotIndex) => {
       toggleSkillRankForClass(character, skill, spendClass, dotIndex);
       refreshPointsPanels();
@@ -832,6 +854,12 @@ const SKILLS_TAB_NAMES = CLASSES.concat(SKILLS_EXTRA_TABS);
 
 function byName(a, b) {
   return a.name.localeCompare(b.name);
+}
+
+// Spells/Miracles: lowest prerequisite first (easiest to reach), then
+// alphabetical within the same dots-required tier.
+function byDotsThenName(a, b) {
+  return (a.dotsRequired - b.dotsRequired) || a.name.localeCompare(b.name);
 }
 
 function renderSkills() {
@@ -888,10 +916,10 @@ function renderWeaponRankDots(parent, weapon, category) {
     effectiveRank,
     autoMin,
     otherSpend: spentTotal - ownSpend,
-    available: getClassPointsAvailable(character, activeWeaponsTab),
-    noPointsTitle: `No ${activeWeaponsTab} points available`,
+    available: getClassWeaponPointsAvailable(character, activeWeaponsTab),
+    noPointsTitle: `No ${activeWeaponsTab} weapon dots available`,
     otherClassTitle: `Funded by another class — switch to that class's tab to refund`,
-    buyTitle: (dotIndex) => `Set ${weapon.name} to rank ${dotIndex} (spends a ${activeWeaponsTab} point)`,
+    buyTitle: (dotIndex) => `Set ${weapon.name} to rank ${dotIndex} (spends a ${activeWeaponsTab} weapon dot)`,
     onToggle: (dotIndex) => {
       toggleWeaponRankForClass(character, category, weapon.name, activeWeaponsTab, dotIndex);
       refreshPointsPanels();
@@ -981,8 +1009,8 @@ function buildWeaponRow(weapon, category, interactive) {
     ? `Base Attack + (${getWeaponRate(character, category, weapon.name)} * rank) — Focus starting weapon`
     : `Base Attack + (${getWeaponRate(character, category, weapon.name)} * rank)`;
 
-  const bCell = document.createElement('td');
-  bCell.textContent = weapon.blunt;
+  const iCell = document.createElement('td');
+  iCell.textContent = weapon.impact;
   const sCell = document.createElement('td');
   sCell.textContent = weapon.slash;
   const pCell = document.createElement('td');
@@ -993,7 +1021,7 @@ function buildWeaponRow(weapon, category, interactive) {
   row.appendChild(nameCell);
   row.appendChild(rofCell);
   row.appendChild(targetCell);
-  row.appendChild(bCell);
+  row.appendChild(iCell);
   row.appendChild(sCell);
   row.appendChild(pCell);
   row.appendChild(eCell);
@@ -1060,7 +1088,7 @@ function renderSpecials() {
     box.className = 'special-box';
 
     const owned = isSpecialOwned(character, special);
-    const available = getClassPointsAvailable(character, spendClass);
+    const available = getClassSkillPointsAvailable(character, spendClass);
     const canAcquire = canAcquireSpecial(character);
 
     const dotBtn = document.createElement('button');
@@ -1068,12 +1096,12 @@ function renderSpecials() {
     dotBtn.className = 'dot special-dot' + (owned ? ' filled' : '');
     dotBtn.disabled = !owned && (available <= 0 || !canAcquire);
     dotBtn.title = owned
-      ? `Give up ${special.name} (refunds a ${spendClass} point)`
+      ? `Give up ${special.name} (refunds a ${spendClass} skill dot)`
       : !canAcquire
         ? `No special slots available (${ownedCount}/${tierCount} used — unlocks another at the next tier)`
         : available > 0
-          ? `Acquire ${special.name} (spends a ${spendClass} point)`
-          : `No ${spendClass} points available`;
+          ? `Acquire ${special.name} (spends a ${spendClass} skill dot)`
+          : `No ${spendClass} skill dots available`;
     dotBtn.addEventListener('click', () => {
       toggleSpecialForClass(character, special, spendClass);
       refreshPointsPanels();
@@ -1184,12 +1212,13 @@ function renderGrimoire(opts) {
     title.textContent = school;
     listEl.appendChild(title);
 
-    entries.filter((entry) => entry.school === school).sort(byName).forEach((entry) => {
+    entries.filter((entry) => entry.school === school).sort(byDotsThenName).forEach((entry) => {
       const box = document.createElement('div');
       box.className = 'spell-box';
 
       const learned = isLearned(character, entry);
-      const canAcquire = canLearn(character);
+      const canAcquire = canLearn(character, entry);
+      const meetsDots = meetsCastingDotsRequirement(character, entry, className);
       const dotBtn = document.createElement('button');
       dotBtn.type = 'button';
       dotBtn.className = 'dot spell-dot' + (learned ? ' filled' : '');
@@ -1198,7 +1227,9 @@ function renderGrimoire(opts) {
         ? `Forget ${entry.name}`
         : canAcquire
           ? `Learn ${entry.name} (uses 1 of ${slots} ${className.toLowerCase()} slots)`
-          : `No ${className.toLowerCase()} slots available (${learnedCount}/${slots} known)`;
+          : !meetsDots
+            ? `Requires ${entry.dotsRequired} dots in ${className}: ${entry.school}`
+            : `No ${className.toLowerCase()} slots available (${learnedCount}/${slots} known)`;
       dotBtn.addEventListener('click', () => {
         toggleLearned(character, entry);
         rerender();
@@ -1221,6 +1252,7 @@ function renderGrimoire(opts) {
       textWrap.appendChild(nameRow);
 
       const metaParts = [];
+      if (entry.dotsRequired > 0) metaParts.push(`Requires: ${entry.dotsRequired} dot${entry.dotsRequired === 1 ? '' : 's'}`);
       if (entry.defy) metaParts.push(`Defy: ${entry.defy}`);
       if (entry.clock) metaParts.push(`Clock: ${entry.clock}`);
       if (entry.crutch) metaParts.push(`Crutch: ${entry.crutch}`);
@@ -1451,9 +1483,13 @@ function renderClasses() {
     header.appendChild(dotsValue);
     box.appendChild(header);
 
-    const pointsUsed = getClassPointsUsed(character, cls);
+    const weaponUsed = getClassWeaponPointsUsed(character, cls);
+    const skillUsed = getClassSkillPointsUsed(character, cls);
     const rankMultiplier = getClassRankMultiplier(character);
-    const minRanksForSpend = Math.ceil(pointsUsed / rankMultiplier);
+    const minRanksForSpend = Math.max(weaponUsed, Math.ceil(skillUsed / rankMultiplier));
+    // Buying another class rank — in ANY class — is blocked while any class
+    // still has an unspent Weapon or Skill dot from a rank already bought.
+    const dotsBlocked = hasUnspentClassDots(character);
     // Mage/Priest ranks each hold Spell/Miracle slots — normally 1:1, but
     // "Extra Spell"/"Blessing of Miracles" add bonus slots for ranks gained
     // after acquiring them, so slot count isn't linear with rank. Simulate
@@ -1475,17 +1511,35 @@ function renderClasses() {
         dotBtn.className = 'dot' + (current >= dotIndex ? ' filled' : '');
         const isDecrement = dotIndex <= current;
         const targetValue = current === dotIndex ? dotIndex - 1 : dotIndex;
-        const breaksSpend = isDecrement && targetValue < minRanksForSpend;
-        const breaksGrimoire = isDecrement && getGrimoireSlotsForRank(targetValue) < grimoireLearnedCount;
-        const locked = breaksSpend || breaksGrimoire;
+
+        let locked;
+        let title;
+        if (isDecrement) {
+          const breaksSpend = targetValue < minRanksForSpend;
+          const breaksGrimoire = getGrimoireSlotsForRank(targetValue) < grimoireLearnedCount;
+          locked = breaksSpend || breaksGrimoire;
+          title = locked
+            ? (breaksSpend
+              ? `Can't reduce ${cls} below ${minRanksForSpend} rank${minRanksForSpend === 1 ? '' : 's'} while ${weaponUsed} weapon dot${weaponUsed === 1 ? '' : 's'} and ${skillUsed} skill dot${skillUsed === 1 ? '' : 's'} are spent`
+              : `Can't reduce ${cls} to ${targetValue} rank${targetValue === 1 ? '' : 's'} while ${grimoireLearnedCount} ${cls === 'Mage' ? 'spell' : 'miracle'}${grimoireLearnedCount === 1 ? ' is' : 's are'} known`)
+            : `Set ${cls} to ${dotIndex}`;
+        } else if (dotIndex === current + 1) {
+          // Class ranks are only ever bought one at a time — see
+          // setClassDotsForClass — because this new rank's own Weapon/Skill
+          // dot(s) must be fully spent before the rank after it, in any
+          // class, becomes available at all.
+          locked = dotsBlocked;
+          title = locked
+            ? `Spend every Weapon and Skill dot already granted, in every class, before buying another class rank`
+            : `Set ${cls} to ${dotIndex} (grants 1 weapon skill dot + ${rankMultiplier} skill dot${rankMultiplier === 1 ? '' : 's'})`;
+        } else {
+          locked = true;
+          title = `Buy ${cls} rank ${current + 1} first — class ranks are bought one at a time`;
+        }
         dotBtn.disabled = locked;
-        dotBtn.title = locked
-          ? (breaksSpend
-            ? `Can't reduce ${cls} below ${minRanksForSpend} rank${minRanksForSpend === 1 ? '' : 's'} while ${pointsUsed} point${pointsUsed === 1 ? ' is' : 's are'} spent`
-            : `Can't reduce ${cls} to ${targetValue} rank${targetValue === 1 ? '' : 's'} while ${grimoireLearnedCount} ${cls === 'Mage' ? 'spell' : 'miracle'}${grimoireLearnedCount === 1 ? ' is' : 's are'} known`)
-          : `Set ${cls} to ${dotIndex}`;
+        dotBtn.title = title;
         dotBtn.addEventListener('click', () => {
-          character.classDots[cls] = clamp(targetValue, CLASS_DOTS_MIN, CLASS_DOTS_MAX);
+          setClassDotsForClass(character, cls, targetValue);
           const grew = targetValue > current;
           if (grew) {
             activeSkillsTab = cls;
@@ -1543,7 +1597,6 @@ setupCollapsible(el.skillsCollapseToggle, el.skillsBody);
 setupCollapsible(el.specialsCollapseToggle, el.specialsBody);
 setupCollapsible(el.spellsCollapseToggle, el.spellsBody);
 setupCollapsible(el.miraclesCollapseToggle, el.miraclesBody);
-setupCollapsible(el.equipmentCollapseToggle, el.equipmentBody);
 setupCollapsible(el.equippedCollapseToggle, el.equippedBody);
 
 el.buyEquipmentBtn.addEventListener('click', () => {
@@ -1919,7 +1972,7 @@ function printEquippedWeaponsTable() {
     ...getWornWeapons(character, 'melee').map((w) => ({ w, category: 'melee' })),
     ...getWornWeapons(character, 'ranged').map((w) => ({ w, category: 'ranged' })),
   ];
-  const cols = ['Weapon', 'M/R', 'Size/Range', 'ROF', 'Target', 'B', 'S', 'P', 'E', 'Cond.'];
+  const cols = ['Weapon', 'M/R', 'Size/Range', 'ROF', 'Target', 'I', 'S', 'P', 'E', 'Cond.'];
   if (rows.length === 0) {
     return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr><tr><td class="ps-empty" colspan="${cols.length}">No weapons equipped or carried.</td></tr></table>`;
   }
@@ -1927,19 +1980,24 @@ function printEquippedWeaponsTable() {
     const equipmentItem = EQUIPMENT.find((e) => e.type === 'weapons' && e.name === w.name);
     const cond = equipmentItem ? conditionLabel(isEquipmentEquipped(character, equipmentItem), isEquipmentCarried(character, equipmentItem)) : '—';
     const target = getWeaponTarget(character, category, w.name);
-    return `<tr><td>${escHtml(w.name)}</td><td>${category === 'melee' ? 'M' : 'R'}</td><td>${escHtml(category === 'melee' ? w.size : w.range)}</td><td>${w.rof}</td><td><b>${target}</b></td><td>${w.blunt}</td><td>${w.slash}</td><td>${w.pierce}</td><td>${w.energy}</td><td>${escHtml(cond)}</td></tr>`;
+    return `<tr><td>${escHtml(w.name)}</td><td>${category === 'melee' ? 'M' : 'R'}</td><td>${escHtml(category === 'melee' ? w.size : w.range)}</td><td>${w.rof}</td><td><b>${target}</b></td><td>${w.impact}</td><td>${w.slash}</td><td>${w.pierce}</td><td>${w.energy}</td><td>${escHtml(cond)}</td></tr>`;
   }).join('');
   return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr>${body}</table>`;
 }
 
 function printArmorTable() {
   const entries = getWornEquipmentEntries(character, 'armor');
-  const cols = ['Armor', 'Weight', 'Cost', 'S', 'B', 'P', 'E', 'Cond.'];
+  const cols = [
+    ['Armor', ''], ['Weight', ''], ['Cost', ''],
+    ['S', ''], ['I', ''], ['P', ''], ['E', ''], ['B', 'Ballistic'],
+    ['Cond.', ''],
+  ];
+  const headerRow = cols.map(([label, title]) => `<th${title ? ` title="${title}"` : ''}>${label}</th>`).join('');
   if (entries.length === 0) {
-    return `<table class="compact datatable armortable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr><tr><td class="ps-empty" colspan="${cols.length}">No armor equipped or carried.</td></tr></table>`;
+    return `<table class="compact datatable armortable"><tr>${headerRow}</tr><tr><td class="ps-empty" colspan="${cols.length}">No armor equipped or carried.</td></tr></table>`;
   }
-  const body = entries.map(({ item, quantity, equipped, carried }) => `<tr><td>${escHtml(item.name)}</td><td>${formatWeight(item.weight * quantity)} lb</td><td>${formatGT(item.cost * quantity)} GT</td><td></td><td></td><td></td><td></td><td>${escHtml(conditionLabel(equipped, carried))}</td></tr>`).join('');
-  return `<table class="compact datatable armortable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr>${body}</table>`;
+  const body = entries.map(({ item, quantity, equipped, carried }) => `<tr><td>${escHtml(item.name)}</td><td>${formatWeight(item.weight * quantity)} lb</td><td>${formatGT(item.cost * quantity)} GT</td><td></td><td></td><td></td><td></td><td></td><td>${escHtml(conditionLabel(equipped, carried))}</td></tr>`).join('');
+  return `<table class="compact datatable armortable"><tr>${headerRow}</tr>${body}</table>`;
 }
 
 function printGeneralEquipmentTable() {
@@ -2054,7 +2112,7 @@ ${printNonFocusSkillsBlock()}
 // sheets skip these pages entirely (matching the blank PDF templates).
 function printGrimoireChecklist(title, entries, schools, isLearned) {
   const bySchool = schools.map((school) => {
-    const items = entries.filter((e) => e.school === school).sort((a, b) => a.name.localeCompare(b.name));
+    const items = entries.filter((e) => e.school === school).sort(byDotsThenName);
     const rows = items.map((e) => {
       const learned = isLearned(e);
       return `<div class="grimoire-entry${learned ? ' learned' : ''}"><i class="dot${learned ? ' filled' : ''}"></i><span class="grimoire-name">${escHtml(e.name)}</span><span class="grimoire-cost">${escHtml(e.cost)}</span></div>`;

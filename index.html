@@ -87,6 +87,10 @@
     <div class="collapsible-body" id="equippedBody">
       <div id="equippedWeightSummary" class="skills-summary"></div>
 
+      <button type="button" id="buyEquipmentBtn">Buy Equipment</button>
+      <div id="equipmentSummary" class="skills-summary"></div>
+      <div id="equipmentOwnedList" class="equipment-owned-list"></div>
+
       <div class="weapons-tables equipped-weapons-tables">
         <div class="weapons-table-group">
           <h3 class="derived-stats-title">Melee Weapons</h3>
@@ -99,7 +103,7 @@
                   <th>Attribute</th>
                   <th>ROF</th>
                   <th>Target</th>
-                  <th>B</th>
+                  <th>I</th>
                   <th>S</th>
                   <th>P</th>
                   <th>E</th>
@@ -121,7 +125,7 @@
                   <th>Attribute</th>
                   <th>ROF</th>
                   <th>Target</th>
-                  <th>B</th>
+                  <th>I</th>
                   <th>S</th>
                   <th>P</th>
                   <th>E</th>
@@ -144,6 +148,11 @@
               <th>Qty</th>
               <th>Weight</th>
               <th>Cost</th>
+              <th>S</th>
+              <th>I</th>
+              <th>P</th>
+              <th>E</th>
+              <th title="Ballistic">B</th>
               <th>Condition</th>
             </tr>
           </thead>
@@ -185,7 +194,7 @@
                   <th>Weapon</th>
                   <th>ROF</th>
                   <th>Target</th>
-                  <th>B</th>
+                  <th>I</th>
                   <th>S</th>
                   <th>P</th>
                   <th>E</th>
@@ -204,7 +213,7 @@
                   <th>Weapon</th>
                   <th>ROF</th>
                   <th>Target</th>
-                  <th>B</th>
+                  <th>I</th>
                   <th>S</th>
                   <th>P</th>
                   <th>E</th>
@@ -236,7 +245,7 @@
                 <th>Weapon</th>
                 <th>ROF</th>
                 <th>Target</th>
-                <th>B</th>
+                <th>I</th>
                 <th>S</th>
                 <th>P</th>
                 <th>E</th>
@@ -255,7 +264,7 @@
                 <th>Weapon</th>
                 <th>ROF</th>
                 <th>Target</th>
-                <th>B</th>
+                <th>I</th>
                 <th>S</th>
                 <th>P</th>
                 <th>E</th>
@@ -267,18 +276,6 @@
       </div>
     </div>
   </dialog>
-
-  <section class="panel equipment-panel">
-    <div class="panel-title-row">
-      <h2>Purchase</h2>
-      <button type="button" class="collapse-toggle" id="equipmentCollapseToggle" aria-expanded="true">▾</button>
-    </div>
-    <div class="collapsible-body" id="equipmentBody">
-      <button type="button" id="buyEquipmentBtn">Buy Equipment</button>
-      <div id="equipmentSummary" class="skills-summary"></div>
-      <div id="equipmentOwnedList" class="equipment-owned-list"></div>
-    </div>
-  </section>
 
   <dialog id="equipmentModal" class="equipment-modal">
     <div class="equipment-modal-header">

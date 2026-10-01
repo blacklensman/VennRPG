@@ -738,7 +738,7 @@ button.secondary:hover {
   font-size: 0.95rem;
 }
 
-.equipment-panel #buyEquipmentBtn,
+.equipped-panel #buyEquipmentBtn,
 .weapons-panel #buyWeaponsBtn,
 .specials-panel #buySpecialsBtn {
   margin-bottom: 12px;
