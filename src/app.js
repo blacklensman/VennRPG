@@ -4,13 +4,14 @@ const {
   ATTRIBUTES, ATTRIBUTE_MIN, ATTRIBUTE_MAX,
   CLASSES, CLASS_DOTS_MIN, CLASS_DOTS_MAX, CLASS_DOTS_ROWS, CLASS_DOTS_PER_ROW,
   getDefyPercent, getDefyValue, DEFY_KEY_ATTRIBUTES,
+  GENRES, GENRE_BASE_TL,
   RACE_NAMES, getRaceAttributeMod, getEffectiveAttribute,
-  MELEE_WEAPONS, RANGED_WEAPONS,
+  MELEE_WEAPONS, RANGED_WEAPONS, ALL_MELEE_WEAPONS, ALL_RANGED_WEAPONS,
   WEAPON_RANKS_MIN, WEAPON_RANKS_MAX, WEAPON_RANKS_ROWS, WEAPON_RANKS_PER_ROW,
   getFocusWeaponCapacity, isWeaponFocusEligible, rollFocusWeapons, addFocusWeapon, removeFocusWeapon,
   isWeaponEligibleForClass, weaponMatchesCharacter, getWeaponRate,
   getWeaponClassSpend, getWeaponSpentRank, getWeaponEffectiveRank, getWeaponTarget, toggleWeaponRankForClass,
-  SKILLS, SKILL_RANKS_MIN, SKILL_RANKS_MAX, SKILL_RANKS_ROWS, SKILL_RANKS_PER_ROW,
+  SKILLS, ALL_SKILLS, getActiveSkills, SKILL_RANKS_MIN, SKILL_RANKS_MAX, SKILL_RANKS_ROWS, SKILL_RANKS_PER_ROW,
   isSkillEligibleForClass, isSkillGeneral, isSkillForRace, pickSpendableClass,
   skillMatchesCharacter, getSkillRate, getSkillAutoMinRank,
   getSkillClassSpend, getSkillSpentRank, getSkillEffectiveRank, getSkillTarget, toggleSkillRankForClass,
@@ -29,6 +30,7 @@ const {
   COMBAT_STAT_GROUP, getBaseDefense, getArmoredDefenseTotal, CASTING_STAT_GROUP, VITALS_STATS,
   STAMINA_COST_ITEMS, getStaminaCostTotal,
   EQUIPMENT, EQUIPMENT_TYPES, getEquipmentQuantity, getEquipmentOwnedEntries,
+  SMALL_ARMS, SMALL_ARMS_MODS, MILITARY_VEHICLES,
   isEquipmentEquipped, isEquipmentCarried, setEquipmentEquipped, setEquipmentCarried,
   getWornEquipmentEntries, getCarriedEquipmentWeightTotal,
   getWornWeapons,
@@ -74,6 +76,9 @@ const el = {
   charName: document.getElementById('charName'),
   raceSelect: document.getElementById('raceSelect'),
   focusSelect: document.getElementById('focusSelect'),
+  genreSelect: document.getElementById('genreSelect'),
+  magicEnabledOn: document.getElementById('magicEnabledOn'),
+  magicEnabledOff: document.getElementById('magicEnabledOff'),
   rollAllBtn: document.getElementById('rollAllBtn'),
   attributesList: document.getElementById('attributesList'),
   combatStatsList: document.getElementById('combatStatsList'),
@@ -131,6 +136,9 @@ const el = {
   equipmentWealthSummary: document.getElementById('equipmentWealthSummary'),
   equipmentTabs: document.getElementById('equipmentTabs'),
   equipmentModalList: document.getElementById('equipmentModalList'),
+  smallArmsBody: document.getElementById('smallArmsBody'),
+  smallArmsModsBody: document.getElementById('smallArmsModsBody'),
+  militaryVehiclesBody: document.getElementById('militaryVehiclesBody'),
   equippedBody: document.getElementById('equippedBody'),
   equippedCollapseToggle: document.getElementById('equippedCollapseToggle'),
   equippedWeightSummary: document.getElementById('equippedWeightSummary'),
@@ -162,6 +170,22 @@ function renderFocusOptions() {
     el.focusSelect.appendChild(opt);
   });
   el.focusSelect.value = character.focus;
+}
+
+function renderGenreOptions() {
+  el.genreSelect.innerHTML = '';
+  GENRES.forEach((genre) => {
+    const opt = document.createElement('option');
+    opt.value = genre;
+    opt.textContent = genre;
+    el.genreSelect.appendChild(opt);
+  });
+  el.genreSelect.value = character.genre;
+}
+
+function renderMagicToggle() {
+  el.magicEnabledOn.checked = character.magicEnabled === true;
+  el.magicEnabledOff.checked = character.magicEnabled !== true;
 }
 
 function renderAttributes() {
@@ -686,6 +710,42 @@ function renderEquippedGeneralTable() {
   });
 }
 
+// Small Arms / Small Arms Modifications / Military Vehicles: reference
+// tables for a future modern/military genre expansion. The panels they
+// populate (#smallArmsPanel, #smallArmsModsPanel, #militaryVehiclesPanel)
+// are permanently `hidden` in index.html — not shown to players, and these
+// items aren't purchasable by any class. Populated once below purely so the
+// table markup is real and ready for when the feature is turned on.
+function renderReferenceTable(tbody, rows, columns) {
+  tbody.innerHTML = '';
+  rows.forEach((row) => {
+    const tr = document.createElement('tr');
+    columns.forEach((key) => {
+      const td = document.createElement('td');
+      td.textContent = row[key];
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+function renderSmallArmsTable() {
+  renderReferenceTable(el.smallArmsBody, SMALL_ARMS,
+    ['maker', 'type', 'designation', 'calibre', 'muzzleVelocity', 'energyTransfer', 'rangeInc', 'fireMode', 'tl']);
+}
+
+function renderSmallArmsModsTable() {
+  renderReferenceTable(el.smallArmsModsBody, SMALL_ARMS_MODS,
+    ['kind', 'condition', 'chance', 'etOrArmor', 'other', 'tl']);
+}
+
+function renderMilitaryVehiclesTable() {
+  renderReferenceTable(el.militaryVehiclesBody, MILITARY_VEHICLES, [
+    'maker', 'type', 'designation', 'country', 'crew', 'armorFront', 'armorSide',
+    'primaryWeapon', 'calibre', 'energyTransfer', 'energyType', 'rangeInc', 'fireMode', 'tl',
+  ]);
+}
+
 function renderEquippedPanel() {
   const totalWeight = getCarriedEquipmentWeightTotal(character);
   el.equippedWeightSummary.textContent = `Total equipment weight (Equipped + Carried): ${formatWeight(totalWeight)} lb`;
@@ -740,7 +800,7 @@ function renderTabBar(container, tabNames, getActive, setActive, onSelect) {
 
 // Points summary line for a resolved spending class (which may differ from
 // the displayed tab for General/Race, since those aren't a single class).
-// Weapon dots and Skill dots are two separate pools now (a Mage/Priest
+// Weapon dots and Skill dots are two separate pools now (a Wiz/Priest
 // Spell:/Miracle: Skill spends from the Weapon pool, everything else from
 // the Skill pool) — shown side by side since a Skills-panel tab can contain
 // both kinds of entry at once.
@@ -838,7 +898,7 @@ function renderSkillBox(container, skill, spendClass) {
     available: getSkillPointsAvailable(character, skill, spendClass),
     autoTitle: `Automatic (${character.race} race or ${character.focus} Focus bonus)`,
     noPointsTitle: `No ${spendClass} ${isWeaponSkillEntry(skill) ? 'weapon' : 'skill'} dots available`,
-    otherClassTitle: `Funded by another class — switch to that class's tab to refund`,
+    otherClassTitle: `Funded by another Expertise — switch to that Expertise's tab to refund`,
     buyTitle: (dotIndex) => `Set ${skill.name} to rank ${dotIndex} (spends a ${spendClass} ${isWeaponSkillEntry(skill) ? 'weapon' : 'skill'} dot)`,
     onToggle: (dotIndex) => {
       toggleSkillRankForClass(character, skill, spendClass, dotIndex);
@@ -874,9 +934,11 @@ function renderSkills() {
   el.skillsList.innerHTML = '';
   el.skillsList.classList.remove('skills-list-vertical');
 
+  const activeSkills = getActiveSkills(character.genre, character.magicEnabled);
+
   if (CLASSES.includes(activeSkillsTab)) {
     renderPointsSummary(el.skillsSummary, activeSkillsTab);
-    const eligible = SKILLS.filter((skill) => isSkillEligibleForClass(character, skill, activeSkillsTab)).sort(byName);
+    const eligible = activeSkills.filter((skill) => isSkillEligibleForClass(character, skill, activeSkillsTab)).sort(byName);
     eligible.forEach((skill) => renderSkillBox(el.skillsList, skill, activeSkillsTab));
     return;
   }
@@ -884,14 +946,14 @@ function renderSkills() {
   const spendClass = pickSpendableClass(character);
   if (activeSkillsTab === 'General') {
     renderPointsSummary(el.skillsSummary, spendClass, 'General skills');
-    SKILLS.filter(isSkillGeneral).sort(byName).forEach((skill) => renderSkillBox(el.skillsList, skill, spendClass));
+    activeSkills.filter(isSkillGeneral).sort(byName).forEach((skill) => renderSkillBox(el.skillsList, skill, spendClass));
     return;
   }
 
   // Race tab: a vertical list of skills tied to the character's current race.
   renderPointsSummary(el.skillsSummary, spendClass, `Race skills (${character.race})`);
   el.skillsList.classList.add('skills-list-vertical');
-  SKILLS.filter((skill) => isSkillForRace(skill, character.race)).sort(byName).forEach((skill) => renderSkillBox(el.skillsList, skill, spendClass));
+  activeSkills.filter((skill) => isSkillForRace(skill, character.race)).sort(byName).forEach((skill) => renderSkillBox(el.skillsList, skill, spendClass));
 }
 
 function formatWeaponMeta(weapon, category) {
@@ -918,7 +980,7 @@ function renderWeaponRankDots(parent, weapon, category) {
     otherSpend: spentTotal - ownSpend,
     available: getClassWeaponPointsAvailable(character, activeWeaponsTab),
     noPointsTitle: `No ${activeWeaponsTab} weapon dots available`,
-    otherClassTitle: `Funded by another class — switch to that class's tab to refund`,
+    otherClassTitle: `Funded by another Expertise — switch to that Expertise's tab to refund`,
     buyTitle: (dotIndex) => `Set ${weapon.name} to rank ${dotIndex} (spends a ${activeWeaponsTab} weapon dot)`,
     onToggle: (dotIndex) => {
       toggleWeaponRankForClass(character, category, weapon.name, activeWeaponsTab, dotIndex);
@@ -1079,7 +1141,7 @@ function renderSpecials() {
   const tierCount = getSpecialTierCount(character);
   const ownedCount = getSpecialsOwnedCount(character);
   el.specialsTierSummary.textContent = `Special slots — Owned: ${ownedCount} / ${tierCount} `
-    + `(unlocked at total class ranks 1, 3, 6, 9, 12, 15, 18...)`;
+    + `(unlocked at total Expertise ranks 1, 3, 6, 9, 12, 15, 18...)`;
 
   el.specialsList.innerHTML = '';
   const eligible = SPECIALS.filter((special) => isSpecialEligible(character, special)).sort(byName);
@@ -1182,7 +1244,7 @@ function renderOwnedSpecials() {
   });
 }
 
-// Shared by Spells (Mage) and Miracles (Priest): a reference grimoire, not
+// Shared by Spells (Wiz) and Miracles (Priest): a reference grimoire, not
 // purchased from the shared point pool — each class rank instead grants one
 // learnable-entry slot (see getSlotCount/getLearnedCount/canLearn). The
 // whole panel hides until `hasAccess(character)` is true.
@@ -1200,7 +1262,7 @@ function renderGrimoire(opts) {
   const slots = getSlotCount(character);
   const learnedCount = getLearnedCount(character);
   const bonusSpecialName = className === 'Spell' ? 'Extra Spell' : 'Blessing of Miracles';
-  const rankLabel = className === 'Spell' ? 'Mage' : 'Priest';
+  const rankLabel = className === 'Spell' ? 'Wiz' : 'Priest';
   const bonusSpecial = SPECIALS.find((s) => s.name === bonusSpecialName);
   const hasBonus = bonusSpecial && isSpecialOwned(character, bonusSpecial);
   const slotsNote = hasBonus ? `1+ per ${rankLabel} rank, +1 more per rank after ${bonusSpecialName}` : `1 per ${rankLabel} rank`;
@@ -1490,14 +1552,14 @@ function renderClasses() {
     // Buying another class rank — in ANY class — is blocked while any class
     // still has an unspent Weapon or Skill dot from a rank already bought.
     const dotsBlocked = hasUnspentClassDots(character);
-    // Mage/Priest ranks each hold Spell/Miracle slots — normally 1:1, but
+    // Wiz/Priest ranks each hold Spell/Miracle slots — normally 1:1, but
     // "Extra Spell"/"Blessing of Miracles" add bonus slots for ranks gained
     // after acquiring them, so slot count isn't linear with rank. Simulate
     // the slot count at the candidate target rank rather than a fixed floor.
-    const grimoireLearnedCount = cls === 'Mage' ? getSpellsLearnedCount(character)
+    const grimoireLearnedCount = cls === 'Wiz' ? getSpellsLearnedCount(character)
       : cls === 'Priest' ? getMiraclesLearnedCount(character)
       : 0;
-    const getGrimoireSlotsForRank = cls === 'Mage' ? (r) => getSpellSlotCountForRank(character, r)
+    const getGrimoireSlotsForRank = cls === 'Wiz' ? (r) => getSpellSlotCountForRank(character, r)
       : cls === 'Priest' ? (r) => getMiracleSlotCountForRank(character, r)
       : () => Infinity;
     for (let row = 0; row < CLASS_DOTS_ROWS; row += 1) {
@@ -1521,7 +1583,7 @@ function renderClasses() {
           title = locked
             ? (breaksSpend
               ? `Can't reduce ${cls} below ${minRanksForSpend} rank${minRanksForSpend === 1 ? '' : 's'} while ${weaponUsed} weapon dot${weaponUsed === 1 ? '' : 's'} and ${skillUsed} skill dot${skillUsed === 1 ? '' : 's'} are spent`
-              : `Can't reduce ${cls} to ${targetValue} rank${targetValue === 1 ? '' : 's'} while ${grimoireLearnedCount} ${cls === 'Mage' ? 'spell' : 'miracle'}${grimoireLearnedCount === 1 ? ' is' : 's are'} known`)
+              : `Can't reduce ${cls} to ${targetValue} rank${targetValue === 1 ? '' : 's'} while ${grimoireLearnedCount} ${cls === 'Wiz' ? 'spell' : 'miracle'}${grimoireLearnedCount === 1 ? ' is' : 's are'} known`)
             : `Set ${cls} to ${dotIndex}`;
         } else if (dotIndex === current + 1) {
           // Class ranks are only ever bought one at a time — see
@@ -1530,11 +1592,11 @@ function renderClasses() {
           // class, becomes available at all.
           locked = dotsBlocked;
           title = locked
-            ? `Spend every Weapon and Skill dot already granted, in every class, before buying another class rank`
+            ? `Spend every Weapon and Skill dot already granted, in every Expertise, before buying another Expertise rank`
             : `Set ${cls} to ${dotIndex} (grants 1 weapon skill dot + ${rankMultiplier} skill dot${rankMultiplier === 1 ? '' : 's'})`;
         } else {
           locked = true;
-          title = `Buy ${cls} rank ${current + 1} first — class ranks are bought one at a time`;
+          title = `Buy ${cls} rank ${current + 1} first — Expertise ranks are bought one at a time`;
         }
         dotBtn.disabled = locked;
         dotBtn.title = title;
@@ -1547,7 +1609,7 @@ function renderClasses() {
           }
           refreshPointsPanels();
           if (grew) {
-            const scrollTarget = cls === 'Mage' ? el.spellsPanel : cls === 'Priest' ? el.miraclesPanel : el.skillsPanel;
+            const scrollTarget = cls === 'Wiz' ? el.spellsPanel : cls === 'Priest' ? el.miraclesPanel : el.skillsPanel;
             scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }
         });
@@ -1570,6 +1632,8 @@ function renderAll() {
   el.charName.value = character.name;
   renderRaceOptions();
   renderFocusOptions();
+  renderGenreOptions();
+  renderMagicToggle();
   renderAttributes();
   renderClasses();
   renderCombatStats();
@@ -1642,7 +1706,38 @@ el.focusSelect.addEventListener('change', () => {
   renderAttributes();
   renderClasses();
   refreshDerived();
+  renderSpells();
+  renderMiracles();
 });
+
+el.genreSelect.addEventListener('change', () => {
+  character.genre = el.genreSelect.value;
+  // Genre picks a sensible Magic default only until the player has made an
+  // explicit choice of their own via the radio buttons — after that,
+  // switching Genre never overwrites it, so Magic can be "bent" onto any
+  // genre. magicEnabledExplicit is a persisted character field (not
+  // transient app state) so a save/reload doesn't look like a fresh explicit
+  // choice was just made.
+  if (!character.magicEnabledExplicit) {
+    character.magicEnabled = character.genre === 'Fantasy';
+    renderMagicToggle();
+  }
+  renderSkills();
+  renderWeapons();
+  renderSpells();
+  renderMiracles();
+});
+
+function onMagicToggleChange() {
+  character.magicEnabled = el.magicEnabledOn.checked;
+  character.magicEnabledExplicit = true;
+  renderSkills();
+  renderClasses();
+  renderSpells();
+  renderMiracles();
+}
+el.magicEnabledOn.addEventListener('change', onMagicToggleChange);
+el.magicEnabledOff.addEventListener('change', onMagicToggleChange);
 
 el.rollAllBtn.addEventListener('click', () => {
   ATTRIBUTES.forEach((attr) => { character.attributes[attr] = rollAttribute(); });
@@ -1721,6 +1816,9 @@ function normalizeLoadedCharacter(loaded) {
     name: typeof loaded.name === 'string' ? loaded.name : '',
     race: RACE_NAMES.includes(loaded.race) ? loaded.race : base.race,
     focus: CLASSES.includes(loaded.focus) ? loaded.focus : base.focus,
+    genre: GENRES.includes(loaded.genre) ? loaded.genre : base.genre,
+    magicEnabled: typeof loaded.magicEnabled === 'boolean' ? loaded.magicEnabled : base.magicEnabled,
+    magicEnabledExplicit: typeof loaded.magicEnabledExplicit === 'boolean' ? loaded.magicEnabledExplicit : base.magicEnabledExplicit,
     attributes: { ...base.attributes },
     classDots: { ...base.classDots },
   };
@@ -1740,7 +1838,7 @@ function normalizeLoadedCharacter(loaded) {
   });
 
   result.skillSpend = {};
-  SKILLS.forEach((s) => {
+  ALL_SKILLS.forEach((s) => {
     result.skillSpend[s.name] = normalizeLedgerSpend(loaded.skillSpend, s.name, result.classDots, SKILL_RANKS_MIN, SKILL_RANKS_MAX);
   });
 
@@ -1757,7 +1855,7 @@ function normalizeLoadedCharacter(loaded) {
   result.extraMiracleBaseRank = Number.isFinite(loaded.extraMiracleBaseRank)
     ? clamp(loaded.extraMiracleBaseRank, CLASS_DOTS_MIN, CLASS_DOTS_MAX) : 0;
 
-  // Clamp to the current Mage/Priest slot count (same philosophy as
+  // Clamp to the current Wiz/Priest slot count (same philosophy as
   // normalizeLedgerSpend above) in case ranks were reduced since this was
   // saved — slot count accounts for the "Extra Spell"/"Blessing of Miracles"
   // bonus, not just raw rank.
@@ -1780,10 +1878,10 @@ function normalizeLoadedCharacter(loaded) {
   });
 
   result.weaponSpend = { melee: {}, ranged: {} };
-  MELEE_WEAPONS.forEach((w) => {
+  ALL_MELEE_WEAPONS.forEach((w) => {
     result.weaponSpend.melee[w.name] = normalizeLedgerSpend(loaded.weaponSpend && loaded.weaponSpend.melee, w.name, result.classDots, WEAPON_RANKS_MIN, WEAPON_RANKS_MAX);
   });
-  RANGED_WEAPONS.forEach((w) => {
+  ALL_RANGED_WEAPONS.forEach((w) => {
     result.weaponSpend.ranged[w.name] = normalizeLedgerSpend(loaded.weaponSpend && loaded.weaponSpend.ranged, w.name, result.classDots, WEAPON_RANKS_MIN, WEAPON_RANKS_MAX);
   });
 
@@ -1863,11 +1961,11 @@ function escHtml(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-const PRINT_COMBAT_CLASS_FOCUS_BONUS = { Fighter: 25, Priest: 20, Thief: 15, Mage: 10 };
-const PRINT_CLASS_MAGIC_FOCUS_BONUS = { Fighter: 0, Thief: 5, Priest: 5, Mage: 15 };
-const PRINT_CLASS_MIRACLE_FOCUS_BONUS = { Fighter: 0, Thief: 0, Mage: 5, Priest: 15 };
-const PRINT_VITALS_FOCUS_MOD_PD = { Fighter: 1, Priest: 0.9, Thief: 0.8, Mage: 0.7 };
-const PRINT_VITALS_FOCUS_MOD_MD = { Fighter: 0.7, Priest: 0.9, Thief: 0.9, Mage: 1.1 };
+const PRINT_COMBAT_CLASS_FOCUS_BONUS = { Fighter: 25, Priest: 20, Outlaw: 15, Wiz: 10 };
+const PRINT_CLASS_MAGIC_FOCUS_BONUS = { Fighter: 0, Outlaw: 5, Priest: 5, Wiz: 15 };
+const PRINT_CLASS_MIRACLE_FOCUS_BONUS = { Fighter: 0, Outlaw: 0, Wiz: 5, Priest: 15 };
+const PRINT_VITALS_FOCUS_MOD_PD = { Fighter: 1, Priest: 0.9, Outlaw: 0.8, Wiz: 0.7 };
+const PRINT_VITALS_FOCUS_MOD_MD = { Fighter: 0.7, Priest: 0.9, Outlaw: 0.9, Wiz: 1.1 };
 
 // class_*_focus_bonus tokens in COMBAT_STAT_GROUP/CASTING_STAT_GROUP's
 // formulaText, swapped for this character's actual Focus bonus.
@@ -1886,7 +1984,7 @@ function printDotsRow(n, filled) {
   return `<span class="dotsrow">${dots}</span>`;
 }
 
-function printAttributesBlock() {
+function printAttributesBlock(blank) {
   const keySet = new Set(DEFY_KEY_ATTRIBUTES[character.focus]);
   const half = Math.ceil(ATTRIBUTES.length / 2);
   const cols = [ATTRIBUTES.slice(0, half), ATTRIBUTES.slice(half)];
@@ -1895,7 +1993,7 @@ ${attrs.map((a) => {
     const value = getEffectiveAttribute(character, a);
     const defy = getDefyValue(character.focus, a, value);
     const rate = keySet.has(a) ? '&times;4%' : '&times;2%';
-    return `<tr><td>${escHtml(a)}</td><td><b>${value}</b></td><td class="defycell"><span class="defy-value">${defy}</span><span class="defy-formula">${rate}</span></td></tr>`;
+    return `<tr><td>${escHtml(a)}</td><td><b>${blank ? '' : value}</b></td><td class="defycell"><span class="defy-value">${blank ? '' : defy}</span><span class="defy-formula">${rate}</span></td></tr>`;
   }).join('')}
 </table>`;
   return `<div class="section-title">Attributes</div>
@@ -1904,14 +2002,14 @@ ${attrs.map((a) => {
 
 const PRINT_CLASSBOX_DOTS_PER_ROW = 20;
 
-function printClassesBlock() {
+function printClassesBlock(blank) {
   const boxes = CLASSES.map((cls) => {
-    const rank = character.classDots[cls];
+    const rank = blank ? 0 : character.classDots[cls];
     const row1 = Math.min(rank, PRINT_CLASSBOX_DOTS_PER_ROW);
     const row2 = Math.max(0, rank - PRINT_CLASSBOX_DOTS_PER_ROW);
     return `
 <div class="classbox${cls === character.focus ? ' classbox-focus' : ''}">
-  <div class="classbox-name">${escHtml(cls)} <span class="rank-value">(${rank}/${CLASS_DOTS_MAX})</span></div>
+  <div class="classbox-name">${escHtml(cls)} <span class="rank-value">(${blank ? '' : rank}/${CLASS_DOTS_MAX})</span></div>
   <div class="dotgrid">${printDotsRow(PRINT_CLASSBOX_DOTS_PER_ROW, row1)}${printDotsRow(PRINT_CLASSBOX_DOTS_PER_ROW, row2)}</div>
   <div class="classbox-defy">Defy: ${DEFY_KEY_ATTRIBUTES[cls].map((a) => a.slice(0, 3)).join('/')}</div>
 </div>`;
@@ -1929,7 +2027,7 @@ const PRINT_VITALS_BASE_FORMULAS = {
   stamina: () => 'Str + 2&times;Con + 2&times;Wil + tot_rk&times;(Con/2)',
 };
 
-function printVitalsBlock() {
+function printVitalsBlock(blank) {
   const pdMod = PRINT_VITALS_FOCUS_MOD_PD[character.focus];
   const mdMod = PRINT_VITALS_FOCUS_MOD_MD[character.focus];
   const rows = VITALS_STATS.map((s) => {
@@ -1939,42 +2037,44 @@ function printVitalsBlock() {
     const misc = Number(state.misc) || 0;
     const total = roundUp(base + magic + misc);
     const formula = PRINT_VITALS_BASE_FORMULAS[s.id](pdMod, mdMod);
-    return `<tr><td><div class="stat-name">${escHtml(s.name)}</div><div class="stat-formula">${formula}</div></td><td>${base}</td><td>${magic}</td><td>${misc}</td><td class="totalcell">${total}</td></tr>`;
+    return `<tr><td><div class="stat-name">${escHtml(s.name)}</div><div class="stat-formula">${formula}</div></td><td>${blank ? '' : base}</td><td>${blank ? '' : magic}</td><td>${blank ? '' : misc}</td><td class="totalcell">${blank ? '' : total}</td></tr>`;
   }).join('');
   return `<table class="compact vitalstable"><tr><th>Vital</th><th>Base</th><th>Magic</th><th>Misc</th><th>Total</th></tr>${rows}</table>`;
 }
 
-function printDerivedBlock() {
+function printDerivedBlock(blank) {
   const items = [
     ...COMBAT_STAT_GROUP.stats.map((s) => ({ name: s.name, formula: s.formulaText, value: s.formula(character) })),
     { name: 'Armored Defense', formula: 'Base Defense + Armor Value', value: getArmoredDefenseTotal(character) },
     ...CASTING_STAT_GROUP.stats.map((s) => ({ name: s.name, formula: s.formulaText, value: s.formula(character) })),
   ];
-  const rows = items.map((it) => `<tr><td><div class="stat-name">${escHtml(it.name)}</div><div class="stat-formula">${escHtml(printWithFocusBonus(it.formula, character.focus))}</div></td><td>${it.value}</td></tr>`).join('');
+  const rows = items.map((it) => `<tr><td><div class="stat-name">${escHtml(it.name)}</div><div class="stat-formula">${escHtml(printWithFocusBonus(it.formula, character.focus))}</div></td><td>${blank ? '' : it.value}</td></tr>`).join('');
   return `<table class="compact derivedtable"><tr><th>Derived</th><th>Target</th></tr>${rows}</table>`;
 }
 
-function printStaminaCostBlock() {
+function printStaminaCostBlock(blank) {
   const cells = STAMINA_COST_ITEMS.map((item) => {
     const state = character.vitals.staminaCost[item.id];
     const total = getStaminaCostTotal(character, item);
     return `
 <td class="stcell">
   <div class="stcell-name">${escHtml(item.name)}</div>
-  <div class="stcell-formula">${item.base} + <b>${Number(state.armor) || 0}</b> + <b>${Number(state.misc) || 0}</b> = <b>${total}</b></div>
+  <div class="stcell-formula">${item.base} + <b>${blank ? '' : (Number(state.armor) || 0)}</b> + <b>${blank ? '' : (Number(state.misc) || 0)}</b> = <b>${blank ? '' : total}</b></div>
 </td>`;
   }).join('');
   return `<table class="compact"><tr>${cells}</tr></table>`;
 }
 
-function printEquippedWeaponsTable() {
-  const rows = [
+function printEquippedWeaponsTable(blank) {
+  const rows = blank ? [] : [
     ...getWornWeapons(character, 'melee').map((w) => ({ w, category: 'melee' })),
     ...getWornWeapons(character, 'ranged').map((w) => ({ w, category: 'ranged' })),
   ];
   const cols = ['Weapon', 'M/R', 'Size/Range', 'ROF', 'Target', 'I', 'S', 'P', 'E', 'Cond.'];
   if (rows.length === 0) {
-    return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr><tr><td class="ps-empty" colspan="${cols.length}">No weapons equipped or carried.</td></tr></table>`;
+    const emptyLabel = blank ? '&nbsp;' : 'No weapons equipped or carried.';
+    const emptyRows = blank ? Array.from({ length: 4 }, () => `<tr><td colspan="${cols.length}">&nbsp;</td></tr>`).join('') : `<tr><td class="ps-empty" colspan="${cols.length}">${emptyLabel}</td></tr>`;
+    return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr>${emptyRows}</table>`;
   }
   const body = rows.map(({ w, category }) => {
     const equipmentItem = EQUIPMENT.find((e) => e.type === 'weapons' && e.name === w.name);
@@ -1985,8 +2085,8 @@ function printEquippedWeaponsTable() {
   return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr>${body}</table>`;
 }
 
-function printArmorTable() {
-  const entries = getWornEquipmentEntries(character, 'armor');
+function printArmorTable(blank) {
+  const entries = blank ? [] : getWornEquipmentEntries(character, 'armor');
   const cols = [
     ['Armor', ''], ['Weight', ''], ['Cost', ''],
     ['S', ''], ['I', ''], ['P', ''], ['E', ''], ['B', 'Ballistic'],
@@ -1994,53 +2094,55 @@ function printArmorTable() {
   ];
   const headerRow = cols.map(([label, title]) => `<th${title ? ` title="${title}"` : ''}>${label}</th>`).join('');
   if (entries.length === 0) {
-    return `<table class="compact datatable armortable"><tr>${headerRow}</tr><tr><td class="ps-empty" colspan="${cols.length}">No armor equipped or carried.</td></tr></table>`;
+    const emptyRows = blank ? Array.from({ length: 4 }, () => `<tr><td colspan="${cols.length}">&nbsp;</td></tr>`).join('') : `<tr><td class="ps-empty" colspan="${cols.length}">No armor equipped or carried.</td></tr>`;
+    return `<table class="compact datatable armortable"><tr>${headerRow}</tr>${emptyRows}</table>`;
   }
   const body = entries.map(({ item, quantity, equipped, carried }) => `<tr><td>${escHtml(item.name)}</td><td>${formatWeight(item.weight * quantity)} lb</td><td>${formatGT(item.cost * quantity)} GT</td><td></td><td></td><td></td><td></td><td></td><td>${escHtml(conditionLabel(equipped, carried))}</td></tr>`).join('');
   return `<table class="compact datatable armortable"><tr>${headerRow}</tr>${body}</table>`;
 }
 
-function printGeneralEquipmentTable() {
-  const entries = getWornEquipmentEntries(character, 'general');
+function printGeneralEquipmentTable(blank) {
+  const entries = blank ? [] : getWornEquipmentEntries(character, 'general');
   const cols = ['Item', 'Qty', 'Weight', 'Cost'];
   if (entries.length === 0) {
-    return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr><tr><td class="ps-empty" colspan="${cols.length}">No other equipment carried.</td></tr></table>`;
+    const emptyRows = blank ? Array.from({ length: 6 }, () => `<tr><td colspan="${cols.length}">&nbsp;</td></tr>`).join('') : `<tr><td class="ps-empty" colspan="${cols.length}">No other equipment carried.</td></tr>`;
+    return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr>${emptyRows}</table>`;
   }
   const body = entries.map(({ item, quantity }) => `<tr><td>${escHtml(item.name)}</td><td>${quantity}</td><td>${formatWeight(item.weight * quantity)} lb</td><td>${formatGT(item.cost * quantity)} GT</td></tr>`).join('');
   return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr>${body}</table>`;
 }
 
-function printPage1() {
+function printPage1(blank) {
   const title = `VennRPG Character Sheet &mdash; ${escHtml(character.focus)}`;
   return `<div class="sheetpage">
   <div class="ps-header">
     <div class="ps-title">${title}</div>
     <div class="ps-fields">
-      <span class="ps-field wide">Character Name <span class="ps-field-value">${escHtml(character.name || 'Unnamed')}</span></span>
-      <span class="ps-field">Race <span class="ps-field-value">${escHtml(character.race)}</span></span>
+      <span class="ps-field wide">Character Name <span class="ps-field-value">${blank ? '' : escHtml(character.name || 'Unnamed')}</span></span>
+      <span class="ps-field">Race <span class="ps-field-value">${blank ? '' : escHtml(character.race)}</span></span>
       <span class="ps-field">Focus <span class="ps-field-value">${escHtml(character.focus)}</span></span>
     </div>
   </div>
 
-  ${printAttributesBlock()}
-  ${printClassesBlock()}
+  ${printAttributesBlock(blank)}
+  ${printClassesBlock(blank)}
 
   <div class="two-col">
-    <div><div class="section-title">Vitals <span class="hint">(Base + Magic + Misc = Total)</span></div>${printVitalsBlock()}</div>
-    <div><div class="section-title">Combat &amp; Casting</div>${printDerivedBlock()}</div>
+    <div><div class="section-title">Vitals <span class="hint">(Base + Magic + Misc = Total)</span></div>${printVitalsBlock(blank)}</div>
+    <div><div class="section-title">Combat &amp; Casting</div>${printDerivedBlock(blank)}</div>
   </div>
 
   <div class="section-title">Stamina Cost <span class="hint">(Base + Armor + Misc = Total)</span></div>
-  ${printStaminaCostBlock()}
+  ${printStaminaCostBlock(blank)}
 
   <div class="section-title">Equipped Weapons</div>
-  ${printEquippedWeaponsTable()}
+  ${printEquippedWeaponsTable(blank)}
 
   <div class="section-title">Armor</div>
-  ${printArmorTable()}
+  ${printArmorTable(blank)}
 
   <div class="section-title">General Equipment</div>
-  ${printGeneralEquipmentTable()}
+  ${printGeneralEquipmentTable(blank)}
 </div>`;
 }
 
@@ -2053,7 +2155,8 @@ function printSpecialsForSheet() {
 
 // This Focus's own Skills, plus every General Skill (always available).
 function printSkillsForSheet() {
-  const skills = SKILLS.filter((s) => isSkillEligibleForClass(character, s, character.focus) || isSkillGeneral(s));
+  const activeSkills = getActiveSkills(character.genre, character.magicEnabled);
+  const skills = activeSkills.filter((s) => isSkillEligibleForClass(character, s, character.focus) || isSkillGeneral(s));
   return [...skills].sort((a, b) => a.name.localeCompare(b.name));
 }
 
@@ -2066,14 +2169,14 @@ function printSpecialsGrid() {
 <div class="specials-columns">${items}</div>`;
 }
 
-function printSkillsColumns() {
+function printSkillsColumns(blank) {
   const items = printSkillsForSheet().map((s) => {
     const rank = getSkillEffectiveRank(character, s);
     const target = getSkillTarget(character, s);
     return `
 <div class="skill-entry">
   <div class="skill-name">${escHtml(s.name)} <span class="skill-attr">${escHtml(s.attribute.join('/'))}</span></div>
-  <div class="skill-row">Rank: <b>${rank}</b> Tgt: <b>${target}</b></div>
+  <div class="skill-row">Rank: <b>${blank ? '' : rank}</b> Tgt: <b>${blank ? '' : target}</b></div>
 </div>`;
   }).join('');
   return `<div class="section-title">Skills <span class="hint">Target = roundUp(avg(Attribute) + rank &times; 6%)</span></div>
@@ -2082,11 +2185,14 @@ function printSkillsColumns() {
 
 // Skills actually bought outside this Focus (and not General) — real
 // entries only, since there's no fixed list the way the Focus/General set has.
-function printNonFocusSkillsBlock() {
+// In blank mode there's no character to have bought anything outside Focus,
+// so this section is just left empty for the player to write in by hand.
+function printNonFocusSkillsBlock(blank) {
   const focusSet = new Set(printSkillsForSheet());
-  const owned = SKILLS.filter((s) => !focusSet.has(s) && getSkillEffectiveRank(character, s) > 0);
+  const activeSkills = getActiveSkills(character.genre, character.magicEnabled);
+  const owned = blank ? [] : activeSkills.filter((s) => !focusSet.has(s) && getSkillEffectiveRank(character, s) > 0);
   const body = owned.length === 0
-    ? '<div class="ps-empty-note">None — no Skills purchased outside this Focus.</div>'
+    ? `<div class="ps-empty-note">${blank ? '&nbsp;' : 'None — no Skills purchased outside this Focus.'}</div>`
     : `<div class="skills-columns">${[...owned].sort((a, b) => a.name.localeCompare(b.name)).map((s) => {
       const rank = getSkillEffectiveRank(character, s);
       const target = getSkillTarget(character, s);
@@ -2100,21 +2206,21 @@ function printNonFocusSkillsBlock() {
 ${body}`;
 }
 
-function printPage2() {
+function printPage2(blank) {
   return `<div class="sheetpage">
 ${printSpecialsGrid()}
-${printSkillsColumns()}
-${printNonFocusSkillsBlock()}
+${printSkillsColumns(blank)}
+${printNonFocusSkillsBlock(blank)}
 </div>`;
 }
 
-// Fighter/Thief have no Spell/Miracle access by default, so their printed
+// Fighter/Outlaw have no Spell/Miracle access by default, so their printed
 // sheets skip these pages entirely (matching the blank PDF templates).
-function printGrimoireChecklist(title, entries, schools, isLearned) {
+function printGrimoireChecklist(title, entries, schools, isLearned, blank) {
   const bySchool = schools.map((school) => {
     const items = entries.filter((e) => e.school === school).sort(byDotsThenName);
     const rows = items.map((e) => {
-      const learned = isLearned(e);
+      const learned = !blank && isLearned(e);
       return `<div class="grimoire-entry${learned ? ' learned' : ''}"><i class="dot${learned ? ' filled' : ''}"></i><span class="grimoire-name">${escHtml(e.name)}</span><span class="grimoire-cost">${escHtml(e.cost)}</span></div>`;
     }).join('');
     return `<div class="grimoire-school"><div class="grimoire-school-title">${escHtml(school)}</div>${rows}</div>`;
@@ -2125,15 +2231,29 @@ function printGrimoireChecklist(title, entries, schools, isLearned) {
 </div>`;
 }
 
-function buildPrintSheetHtml() {
-  const includeGrimoires = character.focus === 'Mage' || character.focus === 'Priest';
-  const page3 = includeGrimoires ? printGrimoireChecklist('Miracles', MIRACLES, MIRACLE_SCHOOLS, (m) => isMiracleLearned(character, m)) : '';
-  const page4 = includeGrimoires ? printGrimoireChecklist('Spells', SPELLS, SPELL_SCHOOLS, (s) => isSpellLearned(character, s)) : '';
-  return `${printPage1()}${printPage2()}${page3}${page4}`;
+// blank=true renders a fillable paper template (every character-specific
+// value cell emptied) instead of this session's live character — used for
+// the standalone Focus class sheets (see gen_sheets.mjs), not the normal
+// in-app PDF export of your own built character.
+// window.PRINT_SHEET_NO_GRIMOIRE forces the grimoire pages off regardless of
+// Magic/Focus — set by gen_sheets.mjs so the baseline bundled character
+// sheets never include Spells/Miracles (those live in the Magic Supplement
+// instead). window.PRINT_SHEET_GRIMOIRE_ONLY, set by gen_magic_sheets.mjs,
+// captures just the 2 grimoire pages (for the Magic Supplement's per-class
+// insert) instead of the full sheet.
+function buildPrintSheetHtml(blank) {
+  const includeGrimoires = character.magicEnabled && window.PRINT_SHEET_NO_GRIMOIRE !== true
+    && (character.focus === 'Wiz' || character.focus === 'Priest');
+  const page3 = includeGrimoires ? printGrimoireChecklist('Miracles', MIRACLES, MIRACLE_SCHOOLS, (m) => isMiracleLearned(character, m), blank) : '';
+  const page4 = includeGrimoires ? printGrimoireChecklist('Spells', SPELLS, SPELL_SCHOOLS, (s) => isSpellLearned(character, s), blank) : '';
+  if (window.PRINT_SHEET_GRIMOIRE_ONLY === true) {
+    return `${page3}${page4}`;
+  }
+  return `${printPage1(blank)}${printPage2(blank)}${page3}${page4}`;
 }
 
 el.pdfBtn.addEventListener('click', () => {
-  el.printSheet.innerHTML = buildPrintSheetHtml();
+  el.printSheet.innerHTML = buildPrintSheetHtml(window.PRINT_SHEET_BLANK === true);
   window.print();
 });
 
@@ -2143,5 +2263,12 @@ window.addEventListener('pagehide', saveCharacterToStorage);
 window.addEventListener('beforeunload', saveCharacterToStorage);
 
 renderAll();
+
+// One-time: populate the hidden reference tables (see renderReferenceTable
+// above) — static data, not tied to the current character, so no need to
+// re-render on every change.
+renderSmallArmsTable();
+renderSmallArmsModsTable();
+renderMilitaryVehiclesTable();
 
 })();

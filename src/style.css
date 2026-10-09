@@ -65,6 +65,33 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--accent); }
 .name-field { flex: 1 1 260px; }
 .race-field { flex: 0 0 160px; }
 .focus-field { flex: 0 0 160px; }
+.genre-field { flex: 0 0 160px; }
+
+.magic-field {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  padding: 6px 10px 6px 8px;
+  margin: 0;
+}
+
+.magic-field legend {
+  padding: 0 4px;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.magic-field label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+  font-size: 0.9rem;
+}
 
 .header-actions {
   display: flex;
@@ -289,6 +316,17 @@ button.secondary:hover {
   border: 1px solid var(--accent);
   border-radius: 10px;
   padding: 1px 8px;
+}
+
+.tl-badge {
+  font-size: 0.7rem;
+  font-weight: normal;
+  color: var(--text-dim);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  padding: 1px 8px;
+  margin-left: 8px;
+  vertical-align: middle;
 }
 
 .class-box-header .dots-value {
