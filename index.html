@@ -26,14 +26,29 @@
         Focus
         <select id="focusSelect"></select>
       </label>
-      <label class="genre-field">
-        Genre
-        <select id="genreSelect"></select>
+      <label class="tech-level-field">
+        Tech Level
+        <select id="techLevelSelect"></select>
       </label>
       <fieldset class="magic-field">
         <legend>Magic</legend>
         <label><input type="radio" name="magicEnabled" id="magicEnabledOn" value="on"> On</label>
         <label><input type="radio" name="magicEnabled" id="magicEnabledOff" value="off"> Off</label>
+      </fieldset>
+      <fieldset class="magic-field">
+        <legend>Cyber</legend>
+        <label><input type="radio" name="cyberEnabled" id="cyberEnabledOn" value="on"> On</label>
+        <label><input type="radio" name="cyberEnabled" id="cyberEnabledOff" value="off" checked> Off</label>
+      </fieldset>
+      <fieldset class="magic-field">
+        <legend>Psychic</legend>
+        <label><input type="radio" name="psychicEnabled" id="psychicEnabledOn" value="on"> On</label>
+        <label><input type="radio" name="psychicEnabled" id="psychicEnabledOff" value="off" checked> Off</label>
+      </fieldset>
+      <fieldset class="magic-field">
+        <legend>Mutant</legend>
+        <label><input type="radio" name="mutantEnabled" id="mutantEnabledOn" value="on"> On</label>
+        <label><input type="radio" name="mutantEnabled" id="mutantEnabledOff" value="off" checked> Off</label>
       </fieldset>
       <div class="header-actions">
         <button id="newCharacterBtn" type="button" class="secondary">New Character</button>
@@ -60,7 +75,7 @@
       </div>
       <div id="attributesList" class="attributes-list"></div>
       <div id="combatStatsList" class="derived-stats-list"></div>
-      <h3 class="derived-stats-title">Coinage</h3>
+      <h3 class="derived-stats-title">Wealth</h3>
       <div id="coinageList" class="coinage-list"></div>
     </section>
 
@@ -116,6 +131,7 @@
                   <th>S</th>
                   <th>P</th>
                   <th>E</th>
+                  <th title="Ballistic">B</th>
                   <th>Condition</th>
                 </tr>
               </thead>
@@ -138,6 +154,7 @@
                   <th>S</th>
                   <th>P</th>
                   <th>E</th>
+                  <th title="Ballistic">B</th>
                   <th>Condition</th>
                 </tr>
               </thead>
@@ -156,11 +173,11 @@
               <th>Description</th>
               <th>Qty</th>
               <th>Weight</th>
-              <th>Cost</th>
-              <th>S</th>
-              <th>I</th>
-              <th>P</th>
-              <th>E</th>
+              <th title="Stamina Cost">Stamina</th>
+              <th title="Slash">S</th>
+              <th title="Impact">I</th>
+              <th title="Pierce">P</th>
+              <th title="Energy">E</th>
               <th title="Ballistic">B</th>
               <th>Condition</th>
             </tr>
@@ -295,78 +312,6 @@
     <div id="equipmentTabs" class="skills-tabs"></div>
     <div id="equipmentModalList" class="equipment-modal-list"></div>
   </dialog>
-
-  <!-- Baseline modern-warfare ballistic/vehicle reference data — Tech Level 5.
-       Always visible, not purchasable/rank-bought (same numbers as data/small_arms.csv,
-       data/small_arms_mods.csv, data/military_vehicles.csv — unmodified). See
-       Appendix A and Appendix V in the printed Handbook for the same tables. -->
-  <section class="panel" id="smallArmsPanel">
-    <h2>Small Arms <span class="tl-badge">Tech Level 5</span></h2>
-    <div class="weapons-table-wrap">
-      <table class="weapons-table">
-        <thead>
-          <tr>
-            <th>Maker</th>
-            <th>Type</th>
-            <th>Designation</th>
-            <th>Calibre</th>
-            <th>MVel (FPS)</th>
-            <th>Energy Transfer</th>
-            <th>Range Inc (M)</th>
-            <th>Fire Mode</th>
-            <th>TL</th>
-          </tr>
-        </thead>
-        <tbody id="smallArmsBody"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="panel" id="smallArmsModsPanel">
-    <h2>Small Arms Modifications <span class="tl-badge">Tech Level 5</span></h2>
-    <div class="weapons-table-wrap">
-      <table class="weapons-table">
-        <thead>
-          <tr>
-            <th>Kind</th>
-            <th>Condition</th>
-            <th>Chance</th>
-            <th>ET or Armor</th>
-            <th>Other</th>
-            <th>TL</th>
-          </tr>
-        </thead>
-        <tbody id="smallArmsModsBody"></tbody>
-      </table>
-    </div>
-  </section>
-
-  <section class="panel" id="militaryVehiclesPanel">
-    <h2>Military Vehicles <span class="tl-badge">Tech Level 5</span></h2>
-    <div class="weapons-table-wrap">
-      <table class="weapons-table">
-        <thead>
-          <tr>
-            <th>Maker</th>
-            <th>Type</th>
-            <th>Designation</th>
-            <th>Country</th>
-            <th>Crew</th>
-            <th>Armor Front (BAC)</th>
-            <th>Armor Side (BAC)</th>
-            <th>Primary Weapon</th>
-            <th>Calibre</th>
-            <th>Energy Transfer</th>
-            <th>Energy Type</th>
-            <th>Range Inc (M)</th>
-            <th>Fire Mode</th>
-            <th>TL</th>
-          </tr>
-        </thead>
-        <tbody id="militaryVehiclesBody"></tbody>
-      </table>
-    </div>
-  </section>
 
   <section class="panel skills-panel">
     <div class="panel-title-row">

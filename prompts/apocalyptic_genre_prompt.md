@@ -12,14 +12,15 @@ Generate exactly three CSVs, each starting with the header row given verbatim, f
 
 Header (verbatim):
 ```
-name,description,attribute,focus,race
+name,description,attribute,min_tl,focus,race
 ```
 
 Columns:
 - `name` — Skill name, Title Case, no commas.
 - `description` — one sentence, no commas (VennRPG's parser for this file does not support quoted fields — never use a literal comma anywhere in `description`).
-- `attribute` — the Attribute(s) this Skill's Target rolls against (one of: Physique, Strength, Constitution, Agility, Dexterity, Intellect, Intuition, Magic, Bravery, Willpower, Charisma, Attraction). Multiple values separated by `;`.
-- `focus` — which Focus class(es) get this Skill at the better 6% rate: `fighter`, `outlaw`, `wiz`, `priest`, separated by `;` if more than one, lowercase. Leave **blank** for a General skill open to everyone.
+- `attribute` — the Attribute(s) this Skill's Target rolls against (one of: Physique, Strength, Constitution, Agility, Dexterity, Intellect, Intuition, Mysticism, Bravery, Willpower, Charisma, Attraction). Multiple values separated by `;`.
+- `min_tl` — integer, the lowest Tech Level this Skill is normally available at (use this genre's Tech Level as the default; lower only for Skills that would plausibly predate it).
+- `focus` — which Focus class(es) get this Skill at the better 6% rate: `martial`, `covert`, `adept`, `shepherd`, separated by `;` if more than one, lowercase. Leave **blank** for a General skill open to everyone.
 - `race` — leave blank unless the skill should be race-restricted (it normally should be blank for Apocalyptic content).
 
 Hard constraint: **do not** generate any `Spell:` or `Miracle:` skill, and never use `Magic Casting` or `Miracle Casting` as an `attribute` value — Apocalyptic has no magic.
@@ -28,8 +29,8 @@ Theme: scavenging/salvage, radiation/contamination survival, jury-rigged repair,
 
 Style example (reshaped from VennRPG's existing Fantasy data — match this density and tone, not the fantasy content itself):
 ```
-Herbalism,Identify gather and prepare useful or dangerous plants,Intellect,priest;wiz;outlaw,
-Engineering,Plan simple machines bridges and field works,Intellect,wiz;fighter,
+Herbalism,Identify gather and prepare useful or dangerous plants,Intellect,1,shepherd;adept;covert,
+Engineering,Plan simple machines bridges and field works,Intellect,1,adept;martial,
 ```
 
 ## 2. `apocalyptic_melee.csv`
@@ -45,8 +46,8 @@ Theme: improvised/scavenged melee — sharpened rebar, machetes, pipe wrenches, 
 
 Style example:
 ```
-Mace,1-hand,,2,0,6,0,0,5,fighter;outlaw;priest,
-Quarterstaff,2-hand,,2,0,6,0,0,5,fighter;outlaw;priest;wiz,
+Mace,1-hand,,2,0,6,0,0,5,martial;covert;shepherd,
+Quarterstaff,2-hand,,2,0,6,0,0,5,martial;covert;shepherd;adept,
 ```
 (Reshape the *structure* only — rename to apocalyptic equivalents like "Rebar Spike", "Pipe Wrench", with one rare TL8 remnant item such as a "Salvaged Vibro-Edge".)
 
@@ -57,14 +58,14 @@ Header (verbatim):
 name,rof,range,attribute,slash_dmg,impact_dmg,pierce_dmg,enery_dmg,TL,focus,race
 ```
 
-Same column conventions as melee above, plus `range` (integer meters). `TL` follows the same split: **`5` for most rows** (scavenged pre-collapse firearms, jury-rigged crossbows/slings), **`8` for at most 1–2 rare rows** representing a scavenged high-tech remnant weapon (running on scavenged power cells, narratively rare/unreliable).
+Same column conventions as melee above, plus `range` (integer meters). `TL` follows the same split: **`5` for most rows** (scavenged pre-collapse firearms, jury-rigged crossbows/slings),1, **`8` for at most 1–2 rare rows** representing a scavenged high-tech remnant weapon (running on scavenged power cells, narratively rare/unreliable).
 
 Theme: scavenged hunting rifles and pistols, jury-rigged crossbows, pipe guns, with one or two rare high-tech remnant weapons. Aim for 15–20 rows.
 
 Style example:
 ```
-Short Bow,1,100,Dexterity,0,0,6,0,5,Fighter;Outlaw,
-Light Crossbow,1,60,Dexterity,0,0,5,0,5,Fighter;Outlaw;Priest,
+Short Bow,1,100,Dexterity,0,0,6,0,5,Martial;Covert,
+Light Crossbow,1,60,Dexterity,0,0,5,0,5,Martial;Covert;Shepherd,
 ```
 (Reshape structurally — e.g. a scavenged hunting rifle, a pipe-gun pistol, plus one rare TL8 remnant like a "Salvaged Pulse Carbine" — keeping the TL8 entries clearly the exception, not the rule.)
 

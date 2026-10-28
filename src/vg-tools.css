@@ -1,0 +1,362 @@
+.vg-shell {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.vg-header h1 {
+  margin: 0 0 4px;
+  font-size: 1.5rem;
+}
+
+.vg-sub {
+  color: var(--text-dim);
+  margin: 0 0 14px;
+}
+
+.vg-load-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.vg-toggle-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.vg-load-status {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.vg-genre-select-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+}
+
+.vg-genre-select-label select {
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.vg-load-status.vg-ok { color: #7fd38a; }
+.vg-load-status.vg-warn { color: #e0b24a; }
+
+.vg-new-genre-form[hidden] { display: none; }
+
+.vg-new-genre-form {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.vg-new-genre-title {
+  font-weight: 600;
+  color: var(--accent);
+}
+
+.vg-new-genre-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  align-items: center;
+}
+
+.vg-new-genre-row > label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.vg-new-genre-row > label:has(input[type="radio"]) {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.vg-new-genre-form input[type="text"],
+.vg-new-genre-form input[type="number"] {
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.vg-new-genre-copyfrom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text-dim);
+}
+
+.vg-new-genre-copyfrom select {
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 4px 6px;
+  border-radius: 4px;
+}
+
+.vg-new-genre-error {
+  color: #e07a7a;
+  font-size: 0.82rem;
+}
+
+.vg-new-genre-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.vg-note {
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  max-width: 900px;
+  margin: 0 0 18px;
+}
+
+.vg-note code {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+
+.vg-tabs {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--panel-border);
+  margin-bottom: 18px;
+}
+
+.vg-tab-btn {
+  background: none;
+  border: 1px solid transparent;
+  border-bottom: none;
+  color: var(--text-dim);
+  padding: 8px 16px;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.vg-tab-btn:hover { color: var(--text); }
+
+.vg-tab-btn.active {
+  color: var(--accent);
+  background: var(--panel-bg);
+  border-color: var(--panel-border);
+  font-weight: 600;
+}
+
+.vg-tabpanel { display: none; }
+.vg-tabpanel.active { display: block; }
+
+.vg-genre-section {
+  background: var(--panel-bg);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin-bottom: 18px;
+}
+
+.vg-genre-section-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.vg-genre-section-header::-webkit-details-marker { display: none; }
+
+.vg-genre-section-header::before {
+  content: '\25B8';
+  color: var(--text-dim);
+  font-size: 0.8rem;
+  transition: transform 0.15s ease;
+}
+
+details.vg-genre-section[open] > .vg-genre-section-header::before {
+  transform: rotate(90deg);
+}
+
+.vg-genre-section-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+  color: var(--accent);
+}
+
+.vg-genre-section-body {
+  margin-top: 10px;
+}
+
+.vg-genre-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.vg-genre-actions button {
+  font-size: 0.82rem;
+  padding: 5px 10px;
+}
+
+.vg-row-count {
+  color: var(--text-dim);
+  font-size: 0.8rem;
+}
+
+.vg-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 10px;
+}
+
+table.vg-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+
+table.vg-table th {
+  text-align: left;
+  color: var(--text-dim);
+  font-weight: 600;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--panel-border);
+  white-space: nowrap;
+}
+
+table.vg-table th.vg-sortable-col {
+  cursor: pointer;
+  user-select: none;
+}
+
+table.vg-table th.vg-sortable-col:hover {
+  color: var(--accent);
+}
+
+table.vg-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid var(--panel-border);
+  vertical-align: top;
+}
+
+table.vg-table tr.vg-row-dirty td {
+  background: rgba(124, 156, 255, 0.07);
+}
+
+table.vg-table tr.vg-row-new td {
+  background: rgba(127, 211, 138, 0.08);
+}
+
+.vg-cell-input {
+  width: 100%;
+  min-width: 70px;
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 0.85rem;
+  box-sizing: border-box;
+}
+
+.vg-cell-input.vg-wide { min-width: 220px; }
+.vg-cell-input.vg-narrow { min-width: 50px; width: 60px; }
+
+.vg-description-input {
+  font-family: inherit;
+  line-height: 1.4;
+  resize: vertical;
+}
+
+.vg-multiselect {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 140px;
+}
+
+.vg-multiselect select {
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  border-radius: 4px;
+  font-size: 0.82rem;
+  padding: 2px;
+}
+
+.vg-multiselect-add {
+  display: flex;
+  gap: 4px;
+}
+
+.vg-multiselect-add input {
+  flex: 1;
+  min-width: 0;
+  background: var(--bg);
+  border: 1px solid var(--panel-border);
+  color: var(--text);
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 0.78rem;
+}
+
+.vg-multiselect-add button {
+  font-size: 0.75rem;
+  padding: 2px 7px;
+}
+
+.vg-delete-btn {
+  background: none;
+  border: 1px solid var(--panel-border);
+  color: #e07a7a;
+  border-radius: 4px;
+  padding: 3px 8px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.vg-delete-btn:hover { border-color: #e07a7a; }
+
+.vg-empty-note {
+  color: var(--text-dim);
+  font-style: italic;
+  font-size: 0.85rem;
+  padding: 10px 0;
+}
+
+.vg-file-tag {
+  display: inline-block;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 0 6px;
+  margin-left: 4px;
+  vertical-align: middle;
+}

@@ -12,14 +12,15 @@ Generate exactly three CSVs, each starting with the header row given verbatim, f
 
 Header (verbatim):
 ```
-name,description,attribute,focus,race
+name,description,attribute,min_tl,focus,race
 ```
 
 Columns:
 - `name` — Skill name, Title Case, no commas.
 - `description` — one sentence, no commas (VennRPG's parser for this file does not support quoted fields — never use a literal comma anywhere in `description`).
-- `attribute` — the Attribute(s) this Skill's Target rolls against (one of: Physique, Strength, Constitution, Agility, Dexterity, Intellect, Intuition, Magic, Bravery, Willpower, Charisma, Attraction). Multiple values separated by `;`.
-- `focus` — which Focus class(es) get this Skill at the better 6% rate: `fighter`, `outlaw`, `wiz`, `priest`, separated by `;` if more than one, lowercase. Leave **blank** for a General skill open to everyone.
+- `attribute` — the Attribute(s) this Skill's Target rolls against (one of: Physique, Strength, Constitution, Agility, Dexterity, Intellect, Intuition, Mysticism, Bravery, Willpower, Charisma, Attraction). Multiple values separated by `;`.
+- `min_tl` — integer, the lowest Tech Level this Skill is normally available at (use this genre's Tech Level as the default; lower only for Skills that would plausibly predate it).
+- `focus` — which Focus class(es) get this Skill at the better 6% rate: `martial`, `covert`, `adept`, `shepherd`, separated by `;` if more than one, lowercase. Leave **blank** for a General skill open to everyone.
 - `race` — leave blank unless the skill should be race-restricted (it normally should be blank for Dystopian content).
 
 Hard constraint: **do not** generate any `Spell:` or `Miracle:` skill, and never use `Magic Casting` or `Miracle Casting` as an `attribute` value — Dystopian has no magic.
@@ -28,8 +29,8 @@ Theme: surveillance evasion, black-market trading, propaganda/counter-propaganda
 
 Style example (reshaped from VennRPG's existing Fantasy data — match this density and tone, not the fantasy content itself):
 ```
-Forgery,Create or detect false documents seals and signatures,Dexterity,outlaw,
-Disguise,Alter appearance voice and manner to pass as someone else,Charisma,outlaw,
+Forgery,Create or detect false documents seals and signatures,Dexterity,1,covert,
+Disguise,Alter appearance voice and manner to pass as someone else,Charisma,1,covert,
 ```
 
 ## 2. `dystopian_melee.csv`
@@ -45,8 +46,8 @@ Theme: riot batons and shields (state-issue), improvised resistance weapons (pip
 
 Style example:
 ```
-Club,1-hand,,2,0,0,6,0,4,fighter;outlaw;priest,
-Mace,1-hand,,2,0,6,0,0,4,fighter;outlaw;priest,
+Club,1-hand,,2,0,0,6,0,4,martial;covert;shepherd,
+Mace,1-hand,,2,0,6,0,0,4,martial;covert;shepherd,
 ```
 (Reshape the *structure* only — rename to dystopian equivalents like "Riot Baton", "Pipe Wrench", etc.)
 
@@ -63,8 +64,8 @@ Theme: state-issue sidearms, tasers/stun batons, tear gas launchers, improvised 
 
 Style example:
 ```
-Sling,1,30,Dexterity,0,3,0,0,4,Fighter;Outlaw;Priest,
-Light Crossbow,1,60,Dexterity,0,0,5,0,4,Fighter;Outlaw;Priest,
+Sling,1,30,Dexterity,0,3,0,0,4,Martial;Covert;Shepherd,
+Light Crossbow,1,60,Dexterity,0,0,5,0,4,Martial;Covert;Shepherd,
 ```
 (Reshape structurally — e.g. a state-issue stun baton launcher, an improvised pipe crossbow — keeping `rof`/damage numbers in the same rough scale as these examples.)
 

@@ -12,24 +12,25 @@ Generate exactly three CSVs, each starting with the header row given verbatim, f
 
 Header (verbatim):
 ```
-name,description,attribute,focus,race
+name,description,attribute,min_tl,focus,race
 ```
 
 Columns:
 - `name` — Skill name, Title Case, no commas.
 - `description` — one sentence, no commas (VennRPG's parser for this file does not support quoted fields — never use a literal comma anywhere in `description`).
-- `attribute` — the Attribute(s) this Skill's Target rolls against (one of: Physique, Strength, Constitution, Agility, Dexterity, Intellect, Intuition, Magic, Bravery, Willpower, Charisma, Attraction). Multiple values separated by `;`.
-- `focus` — which Focus class(es) get this Skill at the better 6% rate: `fighter`, `outlaw`, `wiz`, `priest`, separated by `;` if more than one, lowercase. Leave **blank** for a General skill open to everyone.
+- `attribute` — the Attribute(s) this Skill's Target rolls against (one of: Physique, Strength, Constitution, Agility, Dexterity, Intellect, Intuition, Mysticism, Bravery, Willpower, Charisma, Attraction). Multiple values separated by `;`.
+- `min_tl` — integer, the lowest Tech Level this Skill is normally available at (use this genre's Tech Level as the default; lower only for Skills that would plausibly predate it).
+- `focus` — which Focus class(es) get this Skill at the better 6% rate: `martial`, `covert`, `adept`, `shepherd`, separated by `;` if more than one, lowercase. Leave **blank** for a General skill open to everyone.
 - `race` — leave blank unless the skill should be race-restricted (it normally should be blank for SciFi content).
 
-Hard constraint: **do not** generate any `Spell:` or `Miracle:` skill, and never use `Magic Casting` or `Miracle Casting` as an `attribute` value — SciFi has no magic. Advanced-tech Skills (hacking, xenobiology, zero-g operations, etc.) should use a normal physical/mental Attribute like Intellect or Dexterity, never Magic.
+Hard constraint: **do not** generate any `Spell:` or `Miracle:` skill, and never use `Magic Casting` or `Miracle Casting` as an `attribute` value — SciFi has no magic. Advanced-tech Skills (hacking, xenobiology, zero-g operations, etc.) should use a normal physical/mental Attribute like Intellect or Dexterity, never Mysticism.
 
 Theme: starship systems/piloting, zero-g operations, xenobiology/xenoarchaeology, cybernetics maintenance, hacking/AI wrangling, void survival, advanced forensics, energy-weapon maintenance. Aim for 40–60 rows.
 
 Style example (reshaped from VennRPG's existing Fantasy data — match this density and tone, not the fantasy content itself):
 ```
-Engineering,Plan simple machines bridges and field works,Intellect,wiz;fighter,
-Appraisal,Judge the true value of goods gems art and salvage,Intellect,outlaw;wiz,
+Engineering,Plan simple machines bridges and field works,Intellect,1,adept;martial,
+Appraisal,Judge the true value of goods gems art and salvage,Intellect,1,covert;adept,
 ```
 
 ## 2. `scifi_melee.csv`
@@ -45,8 +46,8 @@ Theme: vibro-blades, power gauntlets, monomolecular edges, stun batons with an e
 
 Style example:
 ```
-Sword Long,1-hand,,1,4,4,8,0,8,fighter;outlaw;priest,
-Sword Sabre,1-hand,,2,4,0,6,0,8,fighter;outlaw;priest,
+Sword Long,1-hand,,1,4,4,8,0,8,martial;covert;shepherd,
+Sword Sabre,1-hand,,2,4,0,6,0,8,martial;covert;shepherd,
 ```
 (Reshape the *structure* only — rename to sci-fi equivalents like "Vibro-Blade", "Monoblade", etc., and give energy-bladed weapons nonzero `enery_dmg`.)
 
@@ -57,14 +58,14 @@ Header (verbatim):
 name,rof,range,attribute,slash_dmg,impact_dmg,pierce_dmg,enery_dmg,TL,focus,race
 ```
 
-Same column conventions as melee above, plus `range` (integer meters — sci-fi ranged weapons should generally out-range Modern firearms). `TL` is **always `8`**. This is the file for blasters, rail weapons, plasma weapons, and other energy/kinetic sci-fi ordnance — `enery_dmg` should be the dominant damage type for most entries.
+Same column conventions as melee above, plus `range` (integer meters — sci-fi ranged weapons should generally out-range Modern firearms). `TL` is **always `8`**. This is the file for blasters, rail weapons,1, plasma weapons, and other energy/kinetic sci-fi ordnance — `enery_dmg` should be the dominant damage type for most entries.
 
 Theme: blaster pistols/rifles, railguns, plasma casters, pulse weapons. Aim for 15–25 rows.
 
 Style example:
 ```
-Composite Bow,1,100,Dexterity,0,0,8,0,8,Fighter;Outlaw,
-Light Crossbow,1,60,Dexterity,0,0,5,0,8,Fighter;Outlaw;Priest,
+Composite Bow,1,100,Dexterity,0,0,8,0,8,Martial;Covert,
+Light Crossbow,1,60,Dexterity,0,0,5,0,8,Martial;Covert;Shepherd,
 ```
 (Reshape structurally into sci-fi energy/kinetic weapons — e.g. a blaster pistol, a rail rifle — keeping `rof` in a similar range but pushing `range` and `enery_dmg` higher to reflect TL8 technology.)
 

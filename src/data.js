@@ -6,18 +6,18 @@
 
 const ATTRIBUTES = [
   'Physique', 'Strength', 'Constitution', 'Agility', 'Dexterity', 'Intellect',
-  'Intuition', 'Magic', 'Bravery', 'Willpower', 'Charisma', 'Attraction',
+  'Intuition', 'Mysticism', 'Bravery', 'Willpower', 'Charisma', 'Attraction',
 ];
 
 const ATTRIBUTE_MIN = 2;
 const ATTRIBUTE_MAX = 20;
 
-const CLASSES = ['Fighter', 'Outlaw', 'Wiz', 'Priest'];
+const CLASSES = ['Martial', 'Covert', 'Adept', 'Shepherd'];
 
 const CLASS_DOTS_MIN = 0;
-const CLASS_DOTS_MAX = 20;
 const CLASS_DOTS_ROWS = 2;
-const CLASS_DOTS_PER_ROW = 10;
+const CLASS_DOTS_PER_ROW = 20;
+const CLASS_DOTS_MAX = CLASS_DOTS_ROWS * CLASS_DOTS_PER_ROW;
 
 // The math rule from data/ui.txt: every derived/computed number is rounded up.
 function roundUp(value) {
@@ -41,32 +41,114 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-// Defy = attribute value * a per-attribute rate: 4% for an attribute that's
-// key to the character's Focus class, 2% for every other attribute.
-const DEFY_HIGH_PERCENT = 4;
-const DEFY_LOW_PERCENT = 2;
-const DEFY_KEY_ATTRIBUTES = {
-  Fighter: ['Physique', 'Strength', 'Constitution'],
-  Outlaw: ['Agility', 'Dexterity', 'Charisma'],
-  Wiz: ['Magic', 'Intellect', 'Intuition'],
-  Priest: ['Willpower', 'Magic', 'Constitution'],
+// ---------------------------------------------------------------------------
+// Expertise (data/{genre}_expertise.csv) — every value an Expertise
+// (Martial/Covert/Adept/Shepherd) controls, in one place, genre-specific
+// like Skills/Equipment/Armor/Race. parseCsvWithHeader is defined later in
+// this file but hoisted (function declaration), so it's safely callable up
+// here. getExpertiseEntry(genre, focus) is the one lookup every derived
+// stat below uses instead of its own flat per-class object, so editing a
+// genre's expertise.csv is the only place those values need to change.
+// ---------------------------------------------------------------------------
+
+function parseExpertiseCsv(csv) {
+  return parseCsvWithHeader(csv).map((r) => ({
+    name: r.name,
+    defyAttributes: parseMultiValue(r.defy_attributes).map(capitalizeToken),
+    focusMeleeWeapons: Number(r.focus_melee_weapons) || 0,
+    focusRangedWeapons: Number(r.focus_ranged_weapons) || 0,
+    combatFocusBonus: Number(r.combat_focus_bonus) || 0,
+    magicFocusBonus: Number(r.magic_focus_bonus) || 0,
+    miracleFocusBonus: Number(r.miracle_focus_bonus) || 0,
+    vitalsPdMod: Number(r.vitals_pd_mod) || 0,
+    vitalsMdMod: Number(r.vitals_md_mod) || 0,
+  }));
+}
+
+const FANTASY_EXPERTISE_CSV = `name,defy_attributes,focus_melee_weapons,focus_ranged_weapons,combat_focus_bonus,magic_focus_bonus,miracle_focus_bonus,vitals_pd_mod,vitals_md_mod
+Martial,Physique;Strength;Constitution;Bravery,3,2,25,0,0,1,0.7
+Covert,Agility;Dexterity;Charisma;Intuition,2,1,15,5,0,0.8,0.9
+Adept,Mysticism;Intellect;Intuition;Willpower,1,1,10,15,5,0.7,1.1
+Shepherd,Willpower;Mysticism;Constitution;Charisma,2,1,20,5,15,0.9,0.9`;
+
+// Every non-Fantasy genre starts as an identical copy of Fantasy's table —
+// a starting point to customize per genre, same as Equipment/Armor.
+const MODERN_EXPERTISE_CSV = FANTASY_EXPERTISE_CSV;
+const DYSTOPIAN_EXPERTISE_CSV = FANTASY_EXPERTISE_CSV;
+const SCIFI_EXPERTISE_CSV = FANTASY_EXPERTISE_CSV;
+const APOCALYPTIC_EXPERTISE_CSV = FANTASY_EXPERTISE_CSV;
+// Morrow Project has since diverged from the Fantasy copy (renamed its 4
+// classes to Soldier/Scout/Science/Contact via vg-tools) — this embedded
+// fallback is synced to match data/morrow_project_expertise.csv as of this
+// edit; publishing a Game Set from vg-tools is what keeps this from going
+// stale again without a manual resync like this one.
+const MORROW_PROJECT_EXPERTISE_CSV = `name,defy_attributes,focus_melee_weapons,focus_ranged_weapons,combat_focus_bonus,magic_focus_bonus,miracle_focus_bonus,vitals_pd_mod,vitals_md_mod
+Soldier,Strength;Constitution;Agility;Bravery,3,3,25,0,0,1.2,0.8
+Scout,Agility;Dexterity;Intuition;Bravery;Charisma,2,1,20,5,0,1.4,1
+Science,Dexterity;Intellect;Intuition;Bravery;Willpower,1,1,15,0,5,0.8,1.4
+Contact,Constitution;Intellect;Intuition;Bravery;Charisma,2,1,15,0,0,1,1`;
+
+const FANTASY_EXPERTISE = parseExpertiseCsv(FANTASY_EXPERTISE_CSV);
+const MODERN_EXPERTISE = parseExpertiseCsv(MODERN_EXPERTISE_CSV);
+const DYSTOPIAN_EXPERTISE = parseExpertiseCsv(DYSTOPIAN_EXPERTISE_CSV);
+const SCIFI_EXPERTISE = parseExpertiseCsv(SCIFI_EXPERTISE_CSV);
+const APOCALYPTIC_EXPERTISE = parseExpertiseCsv(APOCALYPTIC_EXPERTISE_CSV);
+const MORROW_PROJECT_EXPERTISE = parseExpertiseCsv(MORROW_PROJECT_EXPERTISE_CSV);
+
+const GENRE_EXPERTISE = {
+  Fantasy: FANTASY_EXPERTISE,
+  Modern: MODERN_EXPERTISE,
+  Dystopian: DYSTOPIAN_EXPERTISE,
+  SciFi: SCIFI_EXPERTISE,
+  Apocalyptic: APOCALYPTIC_EXPERTISE,
+  'morrow_project': MORROW_PROJECT_EXPERTISE,
 };
 
-function getDefyPercent(focus, attribute) {
-  const keyAttrs = DEFY_KEY_ATTRIBUTES[focus] || [];
+function getActiveExpertise(genre) {
+  return GENRE_EXPERTISE[genre] || FANTASY_EXPERTISE;
+}
+
+// The Focus/Class names a genre actually offers — e.g. Morrow Project's own
+// Expertise can rename the standard 4 (Martial/Covert/Adept/Shepherd) to
+// whatever it wants (Soldier/Scout/Science/Contact, say). CLASSES is only
+// the fallback for a genre with no Expertise data at all.
+function getActiveClasses(genre) {
+  const names = getActiveExpertise(genre).map((e) => e.name);
+  return names.length ? names : CLASSES;
+}
+
+function getExpertiseEntry(genre, focus) {
+  return getActiveExpertise(genre).find((e) => e.name === focus)
+    || FANTASY_EXPERTISE.find((e) => e.name === focus)
+    || { defyAttributes: [], focusMeleeWeapons: 0, focusRangedWeapons: 0, combatFocusBonus: 0, magicFocusBonus: 0, miracleFocusBonus: 0, vitalsPdMod: 0, vitalsMdMod: 0 };
+}
+
+// Defy = attribute value * a per-attribute rate: 4% for an attribute that's
+// key to the character's Focus class (in their current genre), 2% for
+// every other attribute.
+const DEFY_HIGH_PERCENT = 4;
+const DEFY_LOW_PERCENT = 2;
+
+function getDefyPercent(character, attribute) {
+  const keyAttrs = getExpertiseEntry(character.genre, character.focus).defyAttributes;
   return keyAttrs.includes(attribute) ? DEFY_HIGH_PERCENT : DEFY_LOW_PERCENT;
 }
 
-function getDefyValue(focus, attribute, attributeValue) {
-  const percent = getDefyPercent(focus, attribute);
+function getDefyValue(character, attribute, attributeValue) {
+  const percent = getDefyPercent(character, attribute);
   return roundUp(attributeValue * percent);
 }
 
 // ---------------------------------------------------------------------------
-// Races (data/race.csv). Race grants flat attribute modifiers, a movement
-// modifier, a bonus weapon, and multipliers/mods plugged into the Vitals
-// formulas below. Modifiers are applied live on top of the character's base
-// (rolled) attribute values so switching race never mutates stored data.
+// Races (data/{genre}_race.csv). Race grants flat attribute modifiers, a
+// movement modifier, a bonus weapon, and multipliers/mods plugged into the
+// Vitals formulas below. Modifiers are applied live on top of the
+// character's base (rolled) attribute values so switching race never
+// mutates stored data. Each genre has its own race file — Fantasy has the
+// full race list, every other genre currently has Human only — selected via
+// getRaceNamesForGenre(). Race names are unique across genres (Human's stats
+// are identical everywhere), so a single flat RACES map still works for
+// stat lookups regardless of which genre a character is in.
 // ---------------------------------------------------------------------------
 
 const RACE_ATTRIBUTE_COLUMNS = {
@@ -75,50 +157,82 @@ const RACE_ATTRIBUTE_COLUMNS = {
   Constitution: 'constitution',
   Dexterity: 'dexterity',
   Agility: 'agility',
-  Magic: 'magic',
+  Mysticism: 'mysticism',
   Willpower: 'willpower',
 };
 
-const RACES = {
-  Dwarf: {
-    mods: { physique: 1, strength: 1, constitution: 1, dexterity: 0, agility: 0, magic: 0, willpower: 1 },
-    bonusMeleeWeapon: 'Warhammer',
-    bonusRangedWeapon: 'Light Crossbow',
-    moveModifier: -10,
-    race_pd_mult: 0.2,
-    race_md_mult: 0.1,
-    race_init_mod: 0,
-  },
-  Elf: {
-    mods: { physique: 0, strength: 0, constitution: 0, dexterity: 1, agility: 1, magic: 1, willpower: 0 },
-    bonusMeleeWeapon: 'Sword Willow-leaf',
-    bonusRangedWeapon: 'Longbow',
-    moveModifier: 0,
-    race_pd_mult: -0.2,
-    race_md_mult: 0.2,
-    race_init_mod: 0,
-  },
-  Halfling: {
-    mods: { physique: -1, strength: -1, constitution: 2, dexterity: 2, agility: 0, magic: 0, willpower: 2 },
-    bonusMeleeWeapon: 'Knife',
-    bonusRangedWeapon: 'Knife Thrown',
-    moveModifier: -15,
-    race_pd_mult: -0.1,
-    race_md_mult: 0.2,
-    race_init_mod: 5,
-  },
-  Human: {
-    mods: { physique: 1, strength: 1, constitution: 0, dexterity: 0, agility: 0, magic: 1, willpower: 1 },
-    bonusMeleeWeapon: 'Dagger',
-    bonusRangedWeapon: 'Dagger Thrown',
-    moveModifier: 0,
-    race_pd_mult: 0,
-    race_md_mult: 0,
-    race_init_mod: 0,
-  },
+const RACE_CSV_HEADER = 'name,physique,strength,constitution,dexterity,agility,mysticism,willpower,bonus melee weapons,bonus ranged weapons,move_modifier,race_pd_mult,race_md_mult,race_init_mod';
+
+function parseRaceCsv(csv) {
+  const lines = csv.trim().split('\n');
+  const header = lines[0].split(',').map((s) => s.trim());
+  const races = {};
+  lines.slice(1).forEach((line) => {
+    if (!line.trim()) return;
+    const fields = line.split(',').map((s) => s.trim());
+    const row = {};
+    header.forEach((col, i) => { row[col] = fields[i]; });
+    races[capitalizeToken(row.name)] = {
+      mods: {
+        physique: Number(row.physique) || 0,
+        strength: Number(row.strength) || 0,
+        constitution: Number(row.constitution) || 0,
+        dexterity: Number(row.dexterity) || 0,
+        agility: Number(row.agility) || 0,
+        mysticism: Number(row.mysticism) || 0,
+        willpower: Number(row.willpower) || 0,
+      },
+      bonusMeleeWeapon: row['bonus melee weapons'] || '',
+      bonusRangedWeapon: row['bonus ranged weapons'] || '',
+      moveModifier: Number(row.move_modifier) || 0,
+      race_pd_mult: Number(row.race_pd_mult) || 0,
+      race_md_mult: Number(row.race_md_mult) || 0,
+      race_init_mod: Number(row.race_init_mod) || 0,
+    };
+  });
+  return races;
+}
+
+const FANTASY_RACE_CSV = `${RACE_CSV_HEADER}
+Dwarf,1,1,1,0,0,0,1,Warhammer,Light Crossbow,-10,.2,.1,0
+Elf,0,0,0,1,1,1,0,Sword Willow-leaf, Longbow,0,-.2,.2,0
+Halfling,-1,-1,2,2,0,0,2,Knife,Knife Thrown,-15,-.1,.2,5
+Human,1,1,0,0,0,1,1,Dagger,Dagger Thrown,0,0,0,0`;
+
+// Every non-Fantasy genre currently has Human only (same stats as Fantasy's
+// Human row) — see data/{genre}_race.csv.
+const MODERN_RACE_CSV = `${RACE_CSV_HEADER}
+Human,1,1,0,0,0,1,1,Dagger,Dagger Thrown,0,0,0,0`;
+const DYSTOPIAN_RACE_CSV = `${RACE_CSV_HEADER}
+Human,1,1,0,0,0,1,1,Dagger,Dagger Thrown,0,0,0,0`;
+const SCIFI_RACE_CSV = `${RACE_CSV_HEADER}
+Human,1,1,0,0,0,1,1,Dagger,Dagger Thrown,0,0,0,0`;
+const APOCALYPTIC_RACE_CSV = `${RACE_CSV_HEADER}
+Human,1,1,0,0,0,1,1,Dagger,Dagger Thrown,0,0,0,0`;
+const MORROW_PROJECT_RACE_CSV = MODERN_RACE_CSV;
+
+const FANTASY_RACES = parseRaceCsv(FANTASY_RACE_CSV);
+const MODERN_RACES = parseRaceCsv(MODERN_RACE_CSV);
+const DYSTOPIAN_RACES = parseRaceCsv(DYSTOPIAN_RACE_CSV);
+const SCIFI_RACES = parseRaceCsv(SCIFI_RACE_CSV);
+const APOCALYPTIC_RACES = parseRaceCsv(APOCALYPTIC_RACE_CSV);
+const MORROW_PROJECT_RACES = parseRaceCsv(MORROW_PROJECT_RACE_CSV);
+
+const RACES_BY_GENRE = {
+  Fantasy: FANTASY_RACES,
+  Modern: MODERN_RACES,
+  Dystopian: DYSTOPIAN_RACES,
+  SciFi: SCIFI_RACES,
+  Apocalyptic: APOCALYPTIC_RACES,
+  'morrow_project': MORROW_PROJECT_RACES,
 };
 
+const RACES = Object.assign({}, FANTASY_RACES, MODERN_RACES, DYSTOPIAN_RACES, SCIFI_RACES, APOCALYPTIC_RACES, MORROW_PROJECT_RACES);
 const RACE_NAMES = Object.keys(RACES);
+
+function getRaceNamesForGenre(genre) {
+  return Object.keys(RACES_BY_GENRE[genre] || FANTASY_RACES);
+}
 
 function getRaceAttributeMod(raceName, attribute) {
   const race = RACES[raceName];
@@ -173,8 +287,14 @@ function setLedgerClassSpend(ledger, itemKey, cls, value) {
   ledger[itemKey][cls] = Math.max(0, value);
 }
 
+// Sums every class's spend on this item, whichever class names actually
+// have ledger entries — not just the fixed CLASSES list, since a genre can
+// rename its classes (see getActiveClasses()) and a switch never deletes an
+// old class's existing spend.
 function getLedgerSpentRank(ledger, itemKey) {
-  return CLASSES.reduce((sum, cls) => sum + getLedgerClassSpend(ledger, itemKey, cls), 0);
+  const byItem = ledger[itemKey];
+  if (!byItem) return 0;
+  return Object.values(byItem).reduce((sum, v) => sum + (v || 0), 0);
 }
 
 // Click-to-set-rank for one item, spent from a specific class's pool. Mirrors
@@ -202,45 +322,49 @@ function setLedgerRankForClass(ledger, itemKey, cls, targetRank, available) {
 // in the CSV; empty by default until populated with real weapon/class ties.
 // ---------------------------------------------------------------------------
 
-const WEAPON_RANKS_MIN = CLASS_DOTS_MIN;
-const WEAPON_RANKS_MAX = CLASS_DOTS_MAX;
-const WEAPON_RANKS_ROWS = CLASS_DOTS_ROWS;
-const WEAPON_RANKS_PER_ROW = CLASS_DOTS_PER_ROW;
+// Independent of CLASS_DOTS_* on purpose — weapon ranks keep their own 2
+// rows of 10 (0-20) even though Expertise/Class dots expanded to 2 rows of
+// 20 (0-40); they used to share the same constants only because the
+// numbers happened to match.
+const WEAPON_RANKS_MIN = 0;
+const WEAPON_RANKS_MAX = 20;
+const WEAPON_RANKS_ROWS = 2;
+const WEAPON_RANKS_PER_ROW = 10;
 
 const WEAPON_BASE_RATE = 3;
 const WEAPON_BONUS_RATE = 6;
 
 const MELEE_WEAPONS_CSV = `Name,size,attribute,rof,slash_dmg,impact_dmg,pierce_dmg,enery_dmg,TL,focus,race
-Unarmed,fist,,3,0,1,0,0,3,fighter;outlaw;priest;wiz,human;halfling;dwarf;elf
-BrassKnuckles,fist,,3,0,3,0,0,3,fighter;outlaw,
-Dagger,fist,,2,0,4,0,0,3,fighter;outlaw;priest;wiz,human;halfling;dwarf;elf
-Knife,fist,,3,0,2,0,0,3,fighter;outlaw;priest;wiz,human;halfling;dwarf;elf
-Sword Stabbing,1-hand,,1,0,0,8,0,3,fighter;outlaw,
-Sword Arming,1-hand,,1,2,6,8,0,3,fighter;outlaw,
-Sword Long,1-hand,,1,4,4,8,0,3,fighter;outlaw;priest,
-Sword Willow-leaf,1-hand,,1,4,4,8,0,3,fighter;outlaw,Elf
-Sword Broad,1-hand,,1,6,6,10,0,3,fighter;priest,
-Sword Great,2-hand,,1,8,8,16,0,3,fighter,
-Sword Foil,1-hand,,2,0,0,4,0,3,fighter;outlaw;priest,
-Sword Sabre,1-hand,,2,4,0,6,0,3,fighter;outlaw;priest,
-Sword Katana,1-hand,,2,8,0,8,0,3,fighter;priest,
-Hammer,1-hand,,1,0,4,0,0,3,fighter;priest,Dwarf
-WarHammer,2-hand,,1,0,8,0,0,3,fighter,Dwarf
-SpikeHammer,1-hand,,1,0,4,4,0,3,fighter;priest,
-Nordic/Norman Axe,1-hand,,2,6,6,0,0,3,fighter;priest,
-WarAxe,2-hand,,1,10,10,0,0,3,fighter,Dwarf
-Mace,1-hand,,2,0,6,0,0,3,fighter;outlaw;priest,
-Morning Star,1-hand,,2,0,8,2,0,3,fighter;priest,
-Flail,1-hand,,1,0,8,4,0,3,fighter;priest,
-Spear Short,1-hand,,2,0,0,8,0,3,fighter;priest,
-Lance(charge),2-hand,,1,0,0,16,0,3,fighter;priest,
-Pike,2-hand,,1,0,0,10,0,3,fighter;outlaw,
-Lance,2-hand,,1,0,0,8,0,3,fighter;priest,
-Halberd,2-hand,,1,0,0,10,0,3,fighter;priest,
-Quarterstaff,2-hand,,2,0,6,0,0,3,fighter;outlaw;priest;wiz,
-Club,1-hand,,2,0,0,6,0,3,fighter;outlaw;priest,
-Cudgel,1-hand,,2,0,0,4,0,3,fighter;outlaw;priest;wiz,
-Improvised,1-hand,,2,0,0,4,0,3,fighter;outlaw;priest;wiz,
+Unarmed,fist,,3,0,1,0,0,3,martial;covert;shepherd;adept,human;halfling;dwarf;elf
+BrassKnuckles,fist,,3,0,3,0,0,3,martial;covert,
+Dagger,fist,,2,0,4,0,0,3,martial;covert;shepherd;adept,human;halfling;dwarf;elf
+Knife,fist,,3,0,2,0,0,3,martial;covert;shepherd;adept,human;halfling;dwarf;elf
+Sword Stabbing,1-hand,,1,0,0,8,0,3,martial;covert,
+Sword Arming,1-hand,,1,2,6,8,0,3,martial;covert,
+Sword Long,1-hand,,1,4,4,8,0,3,martial;covert;shepherd,
+Sword Willow-leaf,1-hand,,1,4,4,8,0,3,martial;covert,Elf
+Sword Broad,1-hand,,1,6,6,10,0,3,martial;shepherd,
+Sword Great,2-hand,,1,8,8,16,0,3,martial,
+Sword Foil,1-hand,,2,0,0,4,0,3,martial;covert;shepherd,
+Sword Sabre,1-hand,,2,4,0,6,0,3,martial;covert;shepherd,
+Sword Katana,1-hand,,2,8,0,8,0,3,martial;shepherd,
+Hammer,1-hand,,1,0,4,0,0,3,martial;shepherd,Dwarf
+WarHammer,2-hand,,1,0,8,0,0,3,martial,Dwarf
+SpikeHammer,1-hand,,1,0,4,4,0,3,martial;shepherd,
+Nordic/Norman Axe,1-hand,,2,6,6,0,0,3,martial;shepherd,
+WarAxe,2-hand,,1,10,10,0,0,3,martial,Dwarf
+Mace,1-hand,,2,0,6,0,0,3,martial;covert;shepherd,
+Morning Star,1-hand,,2,0,8,2,0,3,martial;shepherd,
+Flail,1-hand,,1,0,8,4,0,3,martial;shepherd,
+Spear Short,1-hand,,2,0,0,8,0,3,martial;shepherd,
+Lance(charge),2-hand,,1,0,0,16,0,3,martial;shepherd,
+Pike,2-hand,,1,0,0,10,0,3,martial;covert,
+Lance,2-hand,,1,0,0,8,0,3,martial;shepherd,
+Halberd,2-hand,,1,0,0,10,0,3,martial;shepherd,
+Quarterstaff,2-hand,,2,0,6,0,0,3,martial;covert;shepherd;adept,
+Club,1-hand,,2,0,0,6,0,3,martial;covert;shepherd,
+Cudgel,1-hand,,2,0,0,4,0,3,martial;covert;shepherd;adept,
+Improvised,1-hand,,2,0,0,4,0,3,martial;covert;shepherd;adept,
 Shortsword,1-hand,,0,0,0,0,0,3,,
 Hand axe,1-hand,,0,0,0,0,0,3,,
 Battleaxe,2-hand,,0,0,0,0,0,3,,
@@ -254,19 +378,19 @@ Fighting Net,2-hand,,0,0,0,0,0,3,,
 Caltrops (bag),thrown,,0,0,0,0,0,3,,`;
 
 const RANGED_WEAPONS_CSV = `name,rof,range,attribute,slash_dmg,impact_dmg,pierce_dmg,enery_dmg,TL,focus,race
-Blowgun,1,10,Agility,0,0,1,0,3,Fighter;Outlaw,
-Sling,1,30,Dexterity,0,3,0,0,3,Fighter;Outlaw;Priest,halfling
-Sling Staff,1,60,Agility,0,6,0,0,3,Fighter;Priest;Wiz,
-Short Bow,1,100,Dexterity,0,0,6,0,3,Fighter;Outlaw,
-Composite Bow,1,100,Dexterity,0,0,8,0,3,Fighter;Outlaw,
-Longbow,1,120,Dexterity,0,0,8,0,3,Fighter,elf
-Light Crossbow,1,60,Dexterity,0,0,5,0,3,Fighter;Outlaw;Priest,
-Heavy Crossbow,1,90,Dexterity,0,0,10,0,3,Fighter,dwarf
-Javelin thrown,1,30,Agility,0,0,5,0,3,Fighter;Outlaw,
-Axe Thrown,1,10,Dexterity,5,3,0,0,3,Fighter;Outlaw,
-Dagger Thrown,2,10,Dexterity,2,0,4,0,3,Fighter;Outlaw,human;halfling;dwarf;elf
-Club Thrown,1,10,Dexterity,0,4,0,0,3,Fighter;Outlaw;Priest,human;halfling;dwarf
-Rock Thrown,1,20,Dexterity,0,1,0,0,3,Fighter;Outlaw;Priest;Wiz,human;halfling;dwarf;elf
+Blowgun,1,10,Agility,0,0,1,0,3,martial;covert,
+Sling,1,30,Dexterity,0,3,0,0,3,martial;covert;shepherd,halfling
+Sling Staff,1,60,Agility,0,6,0,0,3,martial;shepherd;adept,
+Short Bow,1,100,Dexterity,0,0,6,0,3,martial;covert,
+Composite Bow,1,100,Dexterity,0,0,8,0,3,martial;covert,
+Longbow,1,120,Dexterity,0,0,8,0,3,martial,elf
+Light Crossbow,1,60,Dexterity,0,0,5,0,3,martial;covert;shepherd,
+Heavy Crossbow,1,90,Dexterity,0,0,10,0,3,martial,dwarf
+Javelin thrown,1,30,Agility,0,0,5,0,3,martial;covert,
+Axe Thrown,1,10,Dexterity,5,3,0,0,3,martial;covert,
+Dagger Thrown,2,10,Dexterity,2,0,4,0,3,martial;covert,human;halfling;dwarf;elf
+Club Thrown,1,10,Dexterity,0,4,0,0,3,martial;covert;shepherd,human;halfling;dwarf
+Rock Thrown,1,20,Dexterity,0,1,0,0,3,martial;covert;shepherd;adept,human;halfling;dwarf;elf
 Hand crossbow,0,0,,0,0,0,0,3,,
 Arrows (20),0,0,,0,0,0,0,3,,
 Quarrels (20),0,0,,0,0,0,0,3,,
@@ -337,11 +461,17 @@ const DYSTOPIAN_RANGED = parseRangedWeaponsCsv(DYSTOPIAN_RANGED_CSV);
 const SCIFI_RANGED = parseRangedWeaponsCsv(SCIFI_RANGED_CSV);
 const APOCALYPTIC_RANGED = parseRangedWeaponsCsv(APOCALYPTIC_RANGED_CSV);
 
+// Morrow Project's own melee/ranged files (vg-tools-edited) are currently
+// just a copy of Fantasy's weapon list with minor race-tag trims, so it
+// contributes no new weapons beyond the shared baseline — same as Fantasy
+// itself.
 const GENRE_MELEE_WEAPONS = {
   Fantasy: [], Modern: MODERN_MELEE, Dystopian: DYSTOPIAN_MELEE, SciFi: SCIFI_MELEE, Apocalyptic: APOCALYPTIC_MELEE,
+  'morrow_project': [],
 };
 const GENRE_RANGED_WEAPONS = {
   Fantasy: [], Modern: MODERN_RANGED, Dystopian: DYSTOPIAN_RANGED, SciFi: SCIFI_RANGED, Apocalyptic: APOCALYPTIC_RANGED,
+  'morrow_project': [],
 };
 
 // Mirrors getActiveSkills(): baseline MELEE_WEAPONS/RANGED_WEAPONS plus
@@ -360,19 +490,19 @@ function getActiveRangedWeapons(genre) {
 const ALL_MELEE_WEAPONS = MELEE_WEAPONS.concat(MODERN_MELEE, DYSTOPIAN_MELEE, SCIFI_MELEE, APOCALYPTIC_MELEE);
 const ALL_RANGED_WEAPONS = RANGED_WEAPONS.concat(MODERN_RANGED, DYSTOPIAN_RANGED, SCIFI_RANGED, APOCALYPTIC_RANGED);
 
-function getWeaponList(category) {
-  return category === 'melee' ? MELEE_WEAPONS : RANGED_WEAPONS;
+function getWeaponList(genre, category) {
+  return category === 'melee' ? getActiveMeleeWeapons(genre) : getActiveRangedWeapons(genre);
 }
 
-function getWeapon(category, weaponName) {
-  return getWeaponList(category).find((w) => w.name === weaponName);
+function getWeapon(genre, category, weaponName) {
+  return getWeaponList(genre, category).find((w) => w.name === weaponName);
 }
 
 // Race's bonus weapon name (data/race.csv) is hand-maintained separately
 // from the weapon CSVs and can drift in casing (e.g. "Warhammer" vs the
 // weapon list's "WarHammer"), so this look-up is case-insensitive.
-function findWeaponByNameLoose(category, weaponName) {
-  return getWeaponList(category).find((w) => normalizeWeaponName(w.name) === normalizeWeaponName(weaponName));
+function findWeaponByNameLoose(genre, category, weaponName) {
+  return getWeaponList(genre, category).find((w) => normalizeWeaponName(w.name) === normalizeWeaponName(weaponName));
 }
 
 // True if the character's race bonus weapon (data/race.csv) is this weapon.
@@ -385,16 +515,9 @@ function weaponMatchesRace(character, category, weaponName) {
 
 // How many starting weapons each Focus randomly draws from its eligible
 // (focus-matching) weapon pool when that Focus is chosen.
-const FOCUS_WEAPON_COUNTS = {
-  Fighter: { melee: 3, ranged: 2 },
-  Outlaw: { melee: 2, ranged: 1 },
-  Priest: { melee: 2, ranged: 1 },
-  Wiz: { melee: 1, ranged: 1 },
-};
-
-function getFocusWeaponCapacity(focus, category) {
-  const counts = FOCUS_WEAPON_COUNTS[focus] || { melee: 0, ranged: 0 };
-  return counts[category] || 0;
+function getFocusWeaponCapacity(genre, focus, category) {
+  const entry = getExpertiseEntry(genre, focus);
+  return category === 'melee' ? entry.focusMeleeWeapons : entry.focusRangedWeapons;
 }
 
 function isWeaponFocusEligible(weapon, focus) {
@@ -415,28 +538,28 @@ function pickRandomNames(names, count) {
 // column includes it. If the race has a bonus weapon in this category and
 // it exists, it always takes one of the slots; the rest are random. Called
 // whenever a character's Focus is (re-)chosen.
-function rollFocusWeaponsForCategory(category, focus, race) {
-  const count = getFocusWeaponCapacity(focus, category);
+function rollFocusWeaponsForCategory(genre, category, focus, race) {
+  const count = getFocusWeaponCapacity(genre, focus, category);
   if (count <= 0) return [];
 
   const raceInfo = RACES[race];
   const raceBonusName = raceInfo && (category === 'melee' ? raceInfo.bonusMeleeWeapon : raceInfo.bonusRangedWeapon);
-  const raceBonusWeapon = raceBonusName && findWeaponByNameLoose(category, raceBonusName);
+  const raceBonusWeapon = raceBonusName && findWeaponByNameLoose(genre, category, raceBonusName);
   const picks = [];
   if (raceBonusWeapon) {
     picks.push(raceBonusWeapon.name);
   }
 
-  const eligible = getWeaponList(category).filter((w) => isWeaponFocusEligible(w, focus)).map((w) => w.name);
+  const eligible = getWeaponList(genre, category).filter((w) => isWeaponFocusEligible(w, focus)).map((w) => w.name);
   const remainingPool = eligible.filter((name) => !picks.includes(name));
   picks.push(...pickRandomNames(remainingPool, Math.max(0, count - picks.length)));
   return picks.slice(0, count);
 }
 
-function rollFocusWeapons(focus, race) {
+function rollFocusWeapons(genre, focus, race) {
   return {
-    melee: rollFocusWeaponsForCategory('melee', focus, race),
-    ranged: rollFocusWeaponsForCategory('ranged', focus, race),
+    melee: rollFocusWeaponsForCategory(genre, 'melee', focus, race),
+    ranged: rollFocusWeaponsForCategory(genre, 'ranged', focus, race),
   };
 }
 
@@ -462,7 +585,7 @@ function weaponMatchesCharacter(character, category, weaponName) {
 // A weapon with no Focus listed is open to every class's point pool, and a
 // weapon matching the character's race bonus is spendable from every tab too.
 function isWeaponEligibleForClass(character, category, weaponName, cls) {
-  const weapon = getWeapon(category, weaponName);
+  const weapon = getWeapon(character.genre, category, weaponName);
   if (!weapon) return false;
   return weapon.focus.length === 0 || weapon.focus.includes(cls) || weaponMatchesRace(character, category, weaponName);
 }
@@ -530,174 +653,106 @@ function toggleWeaponRankForClass(character, category, weaponName, cls, dotIndex
 // checks the character's actual chosen Focus/Race.
 // ---------------------------------------------------------------------------
 
-const SKILL_RANKS_MIN = CLASS_DOTS_MIN;
-const SKILL_RANKS_MAX = CLASS_DOTS_MAX;
-const SKILL_RANKS_ROWS = CLASS_DOTS_ROWS;
-const SKILL_RANKS_PER_ROW = CLASS_DOTS_PER_ROW;
+// Independent of CLASS_DOTS_* on purpose — see the identical note on
+// WEAPON_RANKS_* above.
+const SKILL_RANKS_MIN = 0;
+const SKILL_RANKS_MAX = 20;
+const SKILL_RANKS_ROWS = 2;
+const SKILL_RANKS_PER_ROW = 10;
 
 const SKILL_BASE_RATE = 3;
 const SKILL_BONUS_RATE = 6;
 
-const SKILLS_CSV = `name,description,attribute,focus,race
-Abjuration,Ward people places and objects against harm and magic,Magic,wiz;priest,
-Acrobatics,Tumble flip and land safely or move through tight spaces,Agility,outlaw;fighter,halfling
-Adaptability,Roll you Defy check each time you Advance; if you roll under add one additional skill,Intellect,,human
-Alchemy,Mix mundane reagents into acids salves and reagents,Intellect,wiz;priest,
-Alertness,Add your inutuition to your Defy check surprise check,Intuition,fighter;outlaw,
-Ancient Languages,Knowledge of dead languages,Intellect,,elf
-Ancient Memory,Recall old names places and songs from long life or lore,Intellect,,elf
-Animal Handling,Calm train and work with domestic or captured animals,Charisma,,
-Animal Husbandry,Care and healing of animals,Intuition,fighter,halfling
-Appraisal,Judge the true value of goods gems art and salvage,Intellect,outlaw;wiz,halfling
-Arcana,Lore magic and relics,Intellect,wiz;priest,
-Armor Use,Move fight and endure fatigue in worn armor,Physique;intuition,fighter;priest,
-Armorsmithing,Craft and refit protective gear,Strength,fighter,dwarf
-Astronomy,Read stars for time direction and omen,Intellect,wiz;priest,
-Athletics,Run jump climb and perform general feats of physical prowess,Physique,,
-Backstab,Strike an unaware or flanked foe for extra precision damage,Dexterity,outlaw,
-Balance,Keep footing on narrow slick or shifting surfaces,Agility,outlaw,halfling
-Beast Lore,Predict animal behavior and know natural weapons,Intellect,,
-Blend In,Disappear in a crowd or against ordinary clutter,Intuition,outlaw,
-Brawling,Win messy close fights using improvised dirty tactics,Strength,fighter;outlaw,dwarf
-Brewing,Make ale wine spirits and simple medicinal draughts,Intellect,,
-Camouflage,Hide a person or camp using terrain and materials,Intuition,outlaw;fighter,
-Carpentry,Build simple structures furniture shields and hafts,Dexterity;Intellect,,
-Cartography,Draw and read usable maps of land cities and dungeons,Intellect,outlaw;wiz;priest,
-Charge,After moving gain an attack that addeds your Physique attribute to your attack,Physique,fighter;priest,
-Cleave,If you have ROF greater than 2; you may sacrifice 1 attack to add your Strength attribute to your attack,Strength,fighter,
-Climb Walls,Scale smooth walls using tools or exceptional technique,Agility,outlaw,
-Climbing,Scale walls cliffs trees and rigging without falling,Strength,,
-Cold Endurance,Resist frost exposure and function in winter weather,Constitution,,
-Combat Riding,Riding of beasts in cavalry and combat,Agility,fighter,
-Comfort Eater,Recover morale and a little stamina from a proper meal,Constitution,,halfling
-Concentration,Keep focus while injured distracted or in chaos,Willpower,wiz;priest;fighter,
-Consecrate,Make ground water or an item holy for a time,Magic,priest,
-Cooking,Prepare filling meals from poor or unusual ingredients,Intuition,,
-Deception,Lie misdirect and keep a straight face under scrutiny,Charisma,outlaw;wiz,
-Demon Lore,Recognize infernal signs pacts and weaknesses,Intellect,priest;wiz,
-Direction Sense,Keep orientation underground or in featureless terrain,Intuition,,
-Disarm,Use 2 ROF to attemtp to Knock or twist a weapon from an opponent's grip,Dexterity,fighter;outlaw,
-Disguise,Alter appearance voice and manner to pass as someone else,Charisma,outlaw,
-Diver,Stamina cost for holding your breath is halved,Constitution,,human;halfling;elf
-Divination,Seek hidden knowledge through signs scrying or omen,Intuition,wiz;priest,
-Divine Sense,Detect consecrated ground spirits and unholy presence,Intuition,priest,
-Dragon Lore,Know draconic kinds hoards breath and bargains,Intellect,wiz;priest;fighter,
-Dungeon Lore,Know typical traps constructs undead nests and ruin layouts,Intellect,fighter;outlaw;wiz,
-Elven Accuracy,Aim true with bows and elegant blades,Dexterity,,elf
-Enchantment,Influence minds with magical charm or suggestion,Magic,wiz,
-Engineering,Plan simple machines bridges and field works,Intellect,wiz;fighter,
-Escape Artist,Slip bonds grapples nets and tight restraints,Dexterity,outlaw,
-Etiquette,Behave correctly among nobles clergy and foreign courts,Charisma,priest;wiz;fighter,
-Familiar Bond,Maintain and communicate with a bound magical companion,Magic,wiz,
-Farming,Raise crops tend fields and judge soil and season,Intellect,,
-Fast Hands,Complete fiddly work in a fraction of the usual time,Dexterity,outlaw,
-Fearless Presence,Lend your bravery attribute to comrades Bravery Defy checks,Bravery,fighter;priest,
-Fire Building,Build a fire from materials,constitution,,
-First Aid,Stop bleeding bind wounds and stabilize the dying,Dexterity,fighter;priest,
-Fishing,Catch fish with line net spear or trap,Dexterity,fighter,human;halfling;elf
-Fletching,Make and repair arrows bolts and bowstrings,Dexterity,fighter;outlaw,
-Folklore,Know local legends superstitions and old wives tales,Intuition,,
-Foraging,Find edible plants water and safe camps in the wild,Intuition,,
-Forgery,Create or detect false documents seals and signatures,Dexterity,outlaw,
-Funeral Rites,Lay the dead to rest and hinder their rising,Willpower,priest,
-Gambling,Play games of chance and spot loaded dice or marked cards,Intuition,outlaw;fighter,
-Giant Lore,Recall the customs strengths and weak points of giants,Intellect,fighter;priest,
-Heat Endurance,Work and fight in desert or forge-level heat,Constitution,,
-Heraldry and History,Identify arms titles houses and court ranks on sight,Intellect,fighter;priest,
-Herbalism,Identify gather and prepare useful or dangerous plants,Intellect,priest;wiz;outlaw,
-History,General history,Intellect,,
-Hunting,Find stalk and take game in the wild,Intuition,fighter;outlaw,
-Identify Magic,Determine the nature of an enchantment aura or item,Magic,wiz,
-Identify Miracle,Determine the nature of an enchantment aura or item,Magic,priest,
-Insight,Read motive mood and whether someone is hiding something,Intuition,,
-Interrogation,Extract answers through pressure patience or fear,Willpower,fighter;outlaw;priest,
-Intimidation,Force compliance through threat presence or violence,Bravery,fighter;outlaw,
-Jack of Trades,Perform common professional tasks adequately without specialty,Intellect,,human
-Jewelcraft,Cut set and evaluate gemstones and fine metalwork,Dexterity,outlaw,dwarf
-Law,Know statutes rights contracts and how courts work,Intellect,priest;outlaw;wiz;priest,
-Leap,Jump horizontally or vertically farther than most people,Strength,fighter;outlaw,
-Leatherworking,Tan cut and stitch hides into gear and light armor,Dexterity,fighter,human;halfling
-Linguistics,Learn and translate additional languages and dialects,Intellect,wiz;priest;outlaw,
-Listen,Pick out whispers footfalls and distant activity,Intuition,outlaw,
-Lockpicking,Open locks without the proper key,Dexterity,outlaw,
-Mathematics,Calculate distances loads odds and construction needs,Intellect,wiz;priest,
-Medicine,Diagnose illness set bones and treat infection over time,Intellect,priest;wiz,
-Meditation,Recover composure and prepare the mind through stillness,Willpower,priest;wiz,
-Memory Palace,Store and recall long lists names maps and instructions,Intellect,wiz;priest,
-Merchant,Haggle price goods and run a stall or caravan trade,Charisma,,
-Mining,Dig tunnels assess ore and work safely underground,Constitution,fighter;priest,dwarf
-Mounted Combat,Fight effectively from horseback or similar mounts,Agility,fighter,
-Nature Lore,Understand weather beasts ecosystems and seasonal cycles,Intellect,,
-Navigation,Plot courses across the sea,Intellect,,
-Nobility,Move among highborn and recall their scandals and claims,Charisma,priest;fighter;wiz,
-Orienteering,Finding your way in trackless lands,intellect;intuition,fighter,
-Perception,Notice hidden details movement sounds and oddities,Intuition,,
-Performance,Sing act play an instrument or hold a crowd,Charisma,,
-Persuasion,Convince others through reasoned argument and appeal,Charisma,,
-Pickpocket,Lift small items from a person without being noticed,Dexterity,outlaw,
-Point Blank Shot,Shoot accurately at very close range,Dexterity,fighter;outlaw,
-Poison Lore,Recognize brew apply and neutralize toxins,Intellect,outlaw;wiz,
-Quiet Step,Move almost silently even without special effort,Agility,,halfling
-Reading and Writing,Self explanatory,intellect,fighter,
-Religious Lore,Know gods rites holy days heresies and temple politics,Intellect,priest;wiz,
-Riddlecraft,Pose and solve riddles ciphers and word traps,Intellect,wiz;outlaw;priest,
-Riding,Control a mount in travel and simple battlefield movement,Agility,,
-Riposte,Answer a failed enemy attack with an immediate counter,Agility,fighter;outlaw,
-Rope Use,Tie secure knots bind captives and create climbing lines,Dexterity,,
-Runecraft,Carve and awaken traditional dwarven protective runes,Magic,,dwarf
-Sailing,Handle small craft rigging weather and river or coastal travel,Agility,fighter;outlaw,
-Scout,Move ahead of a group and report without being caught,Intuition,outlaw;fighter,
-Scribing,Copy texts neatly and prepare ritual or legal documents,Dexterity,wiz;priest,
-Search,Methodically find concealed objects doors and compartments,Intellect,outlaw;wiz,
-Second Breakfast,Ignore the first stretch of hunger or forced march hardship,Constitution,,halfling
-Second Wind,Recover a burst of stamina after being driven to the edge,Constitution,,human
-Seduction,Win trust desire or favors through charm and allure,Attraction,outlaw;wiz,
-Seige Craft,Building and knowledge of seige engines,intellect+strength,fighter,
-Sermon,Move a congregation or crowd through sacred speech,Charisma,priest,
-Shield Bash,Strike and stagger foes with the face or rim of a shield,Strength,fighter;priest,
-Shield Use,Block incoming attacks and control space with a shield,Physique,fighter;priest,
-Shield Wall,Lock shields with allies to blunt a frontal assault,Physique,fighter;priest,
-Siegecraft,Understand rams ladders towers and how to break walls,Intellect,fighter;priest,
-Silent Cast,Shape a simple spell with minimal sound or gesture,Magic,wiz;outlaw,
-Sleight of Hand,Palm switch or vanish small objects in plain view,Dexterity,outlaw;wiz,
-Sling Heritage,Use slings and thrown stones with unusual force and aim,Dexterity,,halfling
-Small Target,Prove harder to hit because of stature and constant motion,Agility,,halfling
-Smite,Strike a foe with weapon and sacred force together,Bravery,priest;fighter,
-Smithing,Forge repair and temper metal weapons and tools,Strength,fighter;priest,dwarf
-Spell Lore,Shape and control learned magical formulas,Magic,wiz,
-Spirit Lore,Know types of ghosts ancestors and how they linger,Intellect,priest;wiz,
-Steady Hands,Perform delicate work while under stress or in motion,Dexterity,,
-Stealth,Move and hide without being seen or heard,Agility,outlaw,
-Stone Mason,Cutting and building from stone,strength,fighter;priest,dwarf
-Stonecunning,Notice unusual stonework slopes masonry and worked tunnels,Intuition,,dwarf
-Streetwise,Find contacts fences rumors and safe houses in cities,Intuition,outlaw;fighter,
-Survival,Build shelter start fire and endure wilderness conditions,Constitution,,
-Swimming,Move and stay afloat in water including rough currents,Constitution,fighter,human;halfling;elf
-Tactics,Read a fight choose positioning and exploit enemy mistakes,Intellect,fighter;priest,
-Tracking,Follow footprints scent and disturbed ground to a quarry,Intuition,fighter;outlaw,
-Trapcraft,Disarm reset or build mechanical traps,Dexterity,outlaw,
-Trapfinding,Detect mechanical and simple magical traps before they trigger,Intuition,outlaw,
-Trip,Dump an opponent to the ground during a clash,Agility,fighter;outlaw,
-Tunnel Fighter,Fight without penalty in cramped low corridors,Physique,fighter,dwarf
-Unarmed Combat,Fight effectively with fists elbows knees and grapples,Physique,,
-Undead Lore,Identify kinds of walking dead and how they are bound,Intellect,priest;wiz,
-Volley,Double ROF at a -25% Ranged Attack,Agility,fighter;outlaw,
-Ward Lore,Create and recognize protective circles seals and runes,Intellect,wiz;priest,
-Weapon Maintenance,Clean sharpen oil and repair arms so they do not fail,Dexterity,fighter;outlaw,
-Weapon Repair,Repairing all manner of weapons malfunctions with which you have training,intellect;intuition,fighter,
-Weaving,Make cloth rope and simple garments,Dexterity,,
-Whirlwind,Attack several adjacent enemies in one spinning effort,Agility,fighter,
-Wrestling,Throw pin and control an opponent without weapons,Strength,fighter;priest,`;
+const SKILLS_CSV = `name,description,attribute,min_tl,focus,race
+Athletics,Climb; jump; swim; run; lift; parkour,Strength;Agility;Physique,1,,
+Perception,Notice details; spot danger; search; situational awareness,Intuition,1,,
+Survival,Wilderness living; foraging; tracking; shelter,Intuition;Constitution,1,,
+Riding / Animal Handling,Mounts; beasts of burden; basic animal care,Agility;Intuition,1,,
+Language,Per language; ranks for fluency,Intellect,1,Adept;Shepherd,
+Trade / Profession,Merchant; farmer; artisan; laborer; administrator,,1,,
+Craft (basic),Common practical crafts,Dexterity;Intellect,1,,
+Endurance,2x Stamina recovery chances,Constitution;Physique,1,,
+Pilot (water),Sailing or other small ship piloting,Intellect;Intuition,2,,
+Gambling,Odds; games of chance,Intellect;Charisma,1,,
+Driving (basic),Everyday vehicles,Dexterity;Agility,4,,
+Computer Use (basic),Everyday devices and software,Intellect;Dexterity,5,,
+First Aid,Basic emergency care,Dexterity;Willpower,1,,
+Navigation (basic),Land; maps; digital at TL5+,Intellect;Intuition,1,,
+Armor Use,1/2 Armor Stamina cost,Strength;Constitution,2,martial,
+Tactics,Small-unit tactics; positioning; ambushes; battlefield reading,Intellect;Intuition,1,martial,
+Intimidation,Threats; presence; breaking morale (also Covert),Strength;Bravery;Charisma,1,martial;covert,
+Heavy Weapons,Crew-served weapons; vehicle weapons; explosives,Strength;Dexterity,4,martial,
+Driving (Advanced),High-performance or combat driving,Dexterity;Agility,4,martial,
+Piloting (Atmospheric),Aircraft and helicopters,Dexterity;Intellect,5,martial,
+Shield Use,Blocking and fighting with shields,Strength;Agility,1,martial,
+Unarmed Combat,Holds; throws; pins; joint locks,Strength;Agility,1,martial,
+Mounted Combat,Fighting effectively from horseback or mounts,Agility;Strength,1,martial,
+Demolitions,Explosives handling; placement; and disarming,Intellect;Dexterity,4,martial,
+Camouflage,Concealing positions; vehicles; or personnel,Intellect;Agility,3,martial,
+Interrogation (field),Rapid field questioning under stress,Willpower;Strength,1,martial,
+Stealth,Hiding; silent movement; urban and wilderness,Agility;Dexterity,1,covert,
+Sleight of Hand,Pickpocket; palming; stage magic,Dexterity,1,covert,
+Lockpicking / Security,Mechanical TL1+; electronic/cyber TL5+,Dexterity;Intellect,1,covert,
+Deception,Lies; misdirection; social engineering,Intellect;Charisma;Attraction,1,covert,
+Streetwise,Urban underworld; contacts; local knowledge,Intuition;Charisma,1,covert,
+Surveillance,Shadowing; observation; tech-enhanced TL5+,Intuition;Dexterity,1,covert,
+Forgery,Documents; digital TL5+,Dexterity;Intellect,2,covert,
+Acrobatics,Balance; tumbling; evasion; parkour,Agility;Dexterity,1,covert,
+Disguise,Appearance alteration; impersonation,Charisma;Dexterity,1,covert,
+Interrogation,Questioning; extracting information,Intellect;Willpower;Charisma,1,covert,
+Escape Artist,Ability to free themselves or complex escape planning,Dexterity;Agility,1,covert,
+Shadowing,Following without detection,Agility;Intuition,1,covert,
+Poisons,Preparation and delivery of toxins,Intellect;Dexterity,2,Covert;Shepherd,
+Cryptography,Codes; ciphers; digital TL5+,Intellect;Intuition,3,Adept;Covert,
+Fast Talk,Rapid persuasion under pressure,Charisma;Intellect,1,covert,
+Lore / History,General knowledge; legends; local history,Intellect,1,Adept;Shepherd,
+Research,Libraries; investigation; databases TL5+,Intellect;Intuition,1,adept,
+Craft (advanced),Specialized high-quality crafting,Dexterity;Intellect,1,,
+Engineering,Design and construction; specializations by field/TL,Intellect;Intuition,3,adept,
+Occult / Arcane Lore,Fantasy or mystic settings,Intellect;Mysticism;Intuition,1,Adept;Shepherd,
+Science,Physics; chemistry; biology (specializations),Intellect,4,adept,
+Electronics,Circuits; devices; sensors,Intellect;Dexterity,5,adept,
+Computer (Advanced),Operation; programming; systems,Intellect;Intuition,5,adept,
+Hacking / Cybersecurity,Intrusion and systems exploitation,Intellect;Intuition,5,Adept;Covert,
+Repair / Mechanics,Fixing tools; vehicles; gear,Dexterity;Intellect,1,Adept;Martial,
+Navigation,Land/sea; orienteering 4+; space at TL7+,Intellect;Intuition,1,Adept;Martial,
+Chemistry,Practical and theoretical,Intellect,4,adept,
+Medicine (advanced),Surgery; diagnosis; treatment,Intellect;Dexterity,4,adept,
+Alchemy,Transmutation and magical substances (fantasy),Intellect;Mysticism,3,adept,
+Artifice,Creating magical or technological devices,Intellect;Dexterity,3,adept,
+Persuasion,Bargaining; convincing; influence,Charisma;Attraction,1,shepherd,
+Diplomacy,Negotiation; formal dealings; etiquette,Intellect;Charisma;Attraction,1,shepherd,
+Leadership,Command; morale; inspiring others,Charisma;Bravery;Willpower,1,Martial;Shepherd,
+Reading People,Reading people; detecting lies,Intuition;Charisma,1,Covert;Shepherd,
+Performance,Oratory; acting; music; entertainment,Charisma;Attraction;Dexterity,1,shepherd,
+Medicine (basic),Basic to advanced care,Intellect;Dexterity;Intuition,1,Adept;Shepherd,
+Pharmacology,Drugs; poisons; herbs,Intellect,3,Adept;Shepherd,
+Attraction / Seduction,Physical and social allure,Attraction;Charisma,1,shepherd,
+Teaching / Instruction,Passing on skills or knowledge,Intellect;Charisma,1,shepherd,
+Speaking,Public speaking; Sermons; inspiring crowds,Charisma;Willpower,1,shepherd,
+Meditation,Focus; recovery; spiritual discipline,Willpower;Intuition,1,Adept;Shepherd,`;
 
+// Header-driven rather than positional — a hand-edited file (not written by
+// vg-tools, which always emits its own fixed column order) can list
+// min_tl/attribute in either order, or spell the attribute column singular
+// or plural, and this still reads it correctly instead of silently
+// swapping the two (exactly the kind of mismatch that bit
+// data/morrow_project_skills.csv).
 function parseSkillsCsv(csv) {
-  return csv.trim().split('\n').slice(1).filter(Boolean).map((line) => {
-    const [name, description, attribute, focusRaw, raceRaw] = line.split(',');
+  const lines = csv.trim().split('\n').filter(Boolean);
+  if (lines.length === 0) return [];
+  const header = lines[0].split(',').map((h) => h.trim());
+  return lines.slice(1).map((line) => {
+    const fields = line.split(',');
+    const row = {};
+    header.forEach((key, idx) => { row[key] = (fields[idx] || '').trim(); });
     return {
-      name: (name || '').trim(),
-      description: (description || '').trim(),
-      attribute: parseMultiValue(attribute).map(capitalizeToken),
-      focus: parseMultiValue(focusRaw).map(capitalizeToken),
-      race: parseMultiValue(raceRaw).map(capitalizeToken),
+      name: row.name || '',
+      description: row.description || '',
+      attribute: parseMultiValue(row.attribute || row.attributes).map(capitalizeToken),
+      minTl: Number(row.min_tl) || 0,
+      focus: parseMultiValue(row.focus).map(capitalizeToken),
+      race: parseMultiValue(row.race).map(capitalizeToken),
     };
   });
 }
@@ -708,22 +763,17 @@ const SKILLS = parseSkillsCsv(SKILLS_CSV);
 // casting skills, extracted out of the magic-free baseline SKILLS above so
 // non-Fantasy genres never see them unless Magic is enabled. See GENRE_SKILLS
 // below and getActiveSkills().
-const FANTASY_SKILLS_CSV = `name,description,attribute,focus,race
-Miracle: Exorcism,Drive possessing spirits from a body or place,Miracle Casting,priest,
-Miracle: Animism,Commune with beasts and the living wild,Miracle Casting,priest,
-Miracle: Curing,Cleanse poison and disease and lift hexes and curses,Miracle Casting,priest,
-Miracle: Healing,Restore physical wounds and stave off death,Miracle Casting,priest,
-Miracle: Necromancy,Command or bind or lay to rest the dead,Miracle Casting,priest,
-Miracle: Ritual Magic,Work long rites for lasting or large sacred effects,Miracle Casting,priest,
-Miracle: Spirit,Speak with or bind or send on ghosts and spirits,Miracle Casting,priest,
-Miracle: Warding,Raise protective wards and sacred defenses,Miracle Casting,priest,
-Spell: Protection,Protection from magical forces,Magic Casting,wiz,
-Spell: Elementalism,Shape fire ice lightning or similar raw elements,Magic Casting,wiz,
-Spell: Attack,Hurl raw destructive magical force,Magic Casting,wiz,
-Spell: Illusion,Create false images sounds and sensations,Magic Casting,wiz;outlaw,
-Spell: Necromancy,Sense command or draw power from death and undeath,Magic Casting,wiz,
-Spell: Ritual Magic,Work long complex ceremonies for lasting or large effects,Magic Casting,wiz,
-Spell: Transmutation,Alter the properties of matter or living form,Magic Casting,wiz,`;
+const FANTASY_SKILLS_CSV = `name,description,attribute,min_tl,focus,race
+Spell: Necromancy,Raising; controlling; or communicating with the dead,Mysticism;Intellect;Willpower,3,adept,
+Spell: Protection,Wards; shields; barriers; and defensive magic,Mysticism;Willpower,3,adept,
+Spell: Attack,Offensive spells; blasts; and direct damage magic,Mysticism;Intellect,3,adept,
+Spell: Summoning,Calling creatures; spirits; or entities,Mysticism;Willpower;Intellect,3,adept,
+Spell: Ritualistic Magic,Complex; time-consuming; high-power rituals,Mysticism;Intellect;Willpower,3,adept,
+Miracle: Necromancy,Communicating with or laying the dead to rest (divine framing),Mysticism;Willpower;Intuition,3,shepherd,
+Miracle: Protection,Blessings; wards; shields; and protective miracles,Mysticism;Willpower,3,shepherd,
+Miracle: Attack,Smiting; holy fire; or divine offensive power,Mysticism;Willpower;Bravery,3,shepherd,
+Miracle: Summoning,Calling divine servants; spirits; or allies,Mysticism;Willpower;Charisma,3,shepherd,
+Miracle: Ritualistic Magic,Ceremonies; blessings; consecrations; and high rituals,Mysticism;Willpower;Intellect,3,shepherd,`;
 
 const FANTASY_SKILLS = parseSkillsCsv(FANTASY_SKILLS_CSV);
 
@@ -735,22 +785,334 @@ const FANTASY_SKILLS = parseSkillsCsv(FANTASY_SKILLS_CSV);
 // whatever that genre contributes — see getActiveSkills().
 // ---------------------------------------------------------------------------
 
-const GENRES = ['Fantasy', 'Modern', 'Dystopian', 'SciFi', 'Apocalyptic'];
+// The 5 genre catalogs the app actually has Skills/Equipment/Race CSVs for.
+// There's no independent Genre selector any more — the Tech Level dropdown
+// is the only control; its selected tier's genre label(s) resolve to one of
+// these 5 via GENRE_LABEL_MAP below.
+const GENRES = ['Fantasy', 'Modern', 'Dystopian', 'SciFi', 'Apocalyptic', 'morrow_project'];
 
-// Typical/anchor Tech Level per genre — reference-only metadata (Handbook
-// explainer text, Grok prompts). TL itself is a plain descriptive field on
-// weapon/armor/vehicle rows; nothing in this file computes with it.
-const GENRE_BASE_TL = { Fantasy: 3, Dystopian: 4, Modern: 5, Apocalyptic: 5, SciFi: 8 };
+// ---------------------------------------------------------------------------
+// Tech Level tiers (data/tech_levels.csv): `TL,genre,magic,psychic,mutant,
+// cyber` rows, one genre per row — a TL number can repeat across several
+// rows (e.g. TL 1 and TL 2 both list "primitive"; TL 6 has a separate row
+// each for Morrow Project, Information Age, Dystopian, and Apocalyptic),
+// each becoming its own Tech Level dropdown option (see
+// getAvailableTechLevels()/renderTechLevelOptions() in app.js — the
+// option's value is the row's index, not its TL number, since TL alone
+// isn't unique). None of these raw labels are guaranteed to match one of
+// the 6 real catalogs above by spelling or case, so GENRE_LABEL_MAP
+// resolves each one (case-insensitively) to whichever catalog is the
+// closest tech-era fit — see resolveCatalogGenre(). The last 4 columns
+// (on/off) are that row's default for the Magic/Psychic/Mutant/Cyber
+// toggles — see onGenreResolved() in app.js, which re-applies them on every
+// Tech Level change until the player explicitly overrides a given toggle.
+// ---------------------------------------------------------------------------
+
+const TECH_LEVELS_SRC = `TL,genre,magic,psychic,mutant,cyber
+1,primitive,off,off,off,off
+2,primitive,off,off,off,off
+3,fantasy,on,off,off,off
+4,Modern,off,off,off,off
+5,Computer Age,off,off,off,off
+6,Morrow Project,off,on,on,off
+6,Information Age,off,off,off,off
+6,Dystopian,off,off,off,off
+6,Apocalyptic,off,on,on,off
+7,AI,off,off,off,off
+7,Interplanetary,off,off,off,off
+8,Interstellar,off,off,off,off
+9,Intergalactic,off,off,off,off`;
+
+function parseTechLevels(src) {
+  const lines = src.trim().split('\n');
+  // "on"/"off" is the convention in data/tech_levels.csv; "yes"/"no"/"true"
+  // also read as on/true for leniency against hand edits.
+  const toBool = (v) => ['on', 'yes', 'true'].includes((v || '').trim().toLowerCase());
+  return lines.slice(1).filter((line) => line.trim()).map((line) => {
+    const parts = line.split(',');
+    const tl = Number((parts[0] || '').trim());
+    const genreLabels = (parts[1] || '').trim().split(';').map((s) => s.trim()).filter(Boolean);
+    return {
+      tl,
+      genreLabels,
+      magic: toBool(parts[2]),
+      psychic: toBool(parts[3]),
+      mutant: toBool(parts[4]),
+      cyber: toBool(parts[5]),
+    };
+  });
+}
+
+// This embedded copy is what every other data file in this app does too
+// (keeps the page fully usable via plain file://, with no server and no
+// fetch). TECH_LEVELS is kept as a mutable array on purpose, though — on
+// page load, app.js tries to re-fetch data/tech_levels.csv fresh (works
+// only when served over http(s); fails silently and harmlessly under
+// file://) and replaces this array's CONTENTS in place via
+// TECH_LEVELS.length = 0; TECH_LEVELS.push(...), so every reference held
+// here in data.js updates automatically without needing a new binding.
+const TECH_LEVELS = parseTechLevels(TECH_LEVELS_SRC);
+
+const GENRE_LABEL_MAP = {
+  primitive: 'Fantasy',
+  fantasy: 'Fantasy',
+  modern: 'Modern',
+  'computer age': 'Modern',
+  ai: 'Dystopian',
+  dystopian: 'Dystopian',
+  apocalyptic: 'Apocalyptic',
+  interplanetary: 'SciFi',
+  interstellar: 'SciFi',
+  intergalactic: 'SciFi',
+  'morrow project': 'morrow_project',
+};
+
+// Nearest-tech-era fallback to Fantasy for any label somehow not in the map.
+function resolveCatalogGenre(genreLabel) {
+  return GENRE_LABEL_MAP[String(genreLabel || '').toLowerCase()] || 'Fantasy';
+}
+
+function getDefaultTechLevel() {
+  const fantasyTier = TECH_LEVELS.find((t) => t.genreLabels.some((g) => g.toLowerCase() === 'fantasy'));
+  return fantasyTier ? fantasyTier.tl : 3;
+}
+
+// A genre only shows up in the Tech Level dropdown once it actually has its
+// own expertise.csv (Expertise is the one file every build fundamentally
+// needs — no Expertise data means no character is buildable in that
+// genre). A tier qualifies if at least one of its genre labels resolves to
+// a genre with real expertise data.
+function genreHasExpertise(genre) {
+  const list = GENRE_EXPERTISE[genre];
+  return Array.isArray(list) && list.length > 0;
+}
+
+function getAvailableTechLevels() {
+  return TECH_LEVELS.filter((tier) => tier.genreLabels.some((label) => genreHasExpertise(resolveCatalogGenre(label))));
+}
+
+// ---------------------------------------------------------------------------
+// Psychic Powers (data/psychic.csv) — an OPTIONAL system the Venn Guide
+// turns on or off per table via the Psychic toggle (character.psychicEnabled,
+// next to Magic). When on, these fold into the Skills list exactly like any
+// other Expertise skill — same focus=Adept skill-dot pool as regular Skills,
+// same auto-granted first rank when Focus matches — EXCEPT each power's
+// buyable dots are capped by its own `dots` column (a plain number, or an
+// "X-Y" range whose upper bound is the cap) rather than the shared 20-dot
+// grid every other skill uses; see maxRank below, getActiveSkills(), and
+// toggleSkillRankForClass()'s cap. Appendix P in the printed Handbook has
+// the full rules text (optional-by-VG, buy-a-dot-up-to-Dots, each dot
+// expands the effect toward the description's maximum).
+// ---------------------------------------------------------------------------
+
+const PSYCHIC_POWERS_CSV = `name,description,min_tl,attributes,focus,race,power,dots
+Life Sense,"Detect living beings through mental auras; determine nature, number, direction, and approximate distance",6,Mysticism,adept,,Telepathy,1
+Empathic Contact,Project a one-word emotional message or sense a subject's mood,6,Mysticism,adept,,Telepathy,1
+Mind Shield,Maintain a natural barrier against unwanted telepathic probing or interference,6,Mysticism,adept,,Telepathy,1
+Suggestion,Project false emotional states or impress emotions to influence responses,6,Mysticism,adept,,Telepathy,1
+Mind Touch,Establish surface mind-link for conversation or limited surface thought reading,6,Mysticism,adept,,Telepathy,2
+TruthTell,Detect lies by analyzing aura of belief in statements,6,Mysticism,adept,,Telepathy,2
+Mental Attack,Escalate telepathic efforts against resistance to force effects through mental pressure,6,Mysticism,adept,,Telepathy,2
+Stun,"Mental attack that stuns a target like a stun pistol, ignoring personal armor",6,Mysticism,adept,,Telepathy,2
+Telepathy,Communicate mind-to-mind with sentient beings over distance,6,Mysticism,adept,,Telepathy,1-10
+Illusion,Create a believable mental illusion around an object or motionless creature,6,Mysticism,adept,,Telepathy,3
+MindProbe,Deep mental attack to extract truthful answers to specific questions,6,Mysticism,adept,,Telepathy,4
+Coma,Mental attack that induces prolonged coma with possible amnesia,6,Mysticism,adept,,Telepathy,4
+PainBlast,Savage mental attack inflicting intense pain and stamina/physical damage,6,Mysticism,adept,,Telepathy,4
+Presence,"Enhance personal aura for leadership, charisma, and influence effects",6,Mysticism,adept,,Telepathy,5
+Psychic Force,Tap the Force via PK Crystal for temporary or permanent stamina boosts,6,Mysticism,adept,,Telepathy,5
+Locate,Pinpoint the position of mental auras or sources of psionic power within range,6,Mysticism,adept,,Telepathy,5
+Communicate,Long-range telepathic projection over vast distances with PK Crystal,6,Mysticism,adept,,Telepathy,5
+DeathBolt,Mental attack delivering significant damage,6,Mysticism,adept,,Telepathy,6
+Delusion,Implant a lasting false belief structure that influences decisions,6,Mysticism,adept,,Telepathy,6
+Control,"Dominate the will of an animal, creating loyalty or temporary control",6,Mysticism,adept,,Telepathy,6
+StarSpeak,Interstellar telepathic communication over light-years,6,Mysticism,adept,,Telepathy,7
+Dominate,Dominate the will of a sentient being to compel actions,6,Mysticism,adept,,Telepathy,7
+Transfer Personality,Transfer personality to another body,6,Mysticism,adept,,Telepathy,7
+SaneMind,Telepathically operate on a mind to remove suggestions or aberrations,6,Mysticism,adept,,Telepathy,8
+MindSlay,Devastating mental attack dealing massive damage or slaying non-psionics,6,Mysticism,adept,,Telepathy,8
+Suggestion II,Deep subconscious compulsion triggered later by a key word or phrase,6,Mysticism,adept,,Telepathy,8
+Elemental Force,Tap deep psyche for a blast of mental force against multiple targets,6,Mysticism,adept,,Telepathy,9
+Great Command,Overwhelming psychic aura granting initiative and influence,6,Mysticism,adept,,Telepathy,9
+Living Matrix,Oneness with the Force granting mental combat advantages,6,Mysticism,adept,,Telepathy,10
+Mass Movement,Move objects of increasing mass over short distances,6,Mysticism,adept,,Telekinesis,1-10
+Manipulation,Manipulate small objects as if using fingers,6,Mysticism,adept,,Telekinesis,1
+Sound,Vibrate air or materials to create sounds,6,Mysticism,adept,,Telekinesis,1
+SoftSpeak,Whisper a short message into a subject's ear,6,Mysticism,adept,,Telekinesis,2
+Telek Blow,Hurl a small object with the force of a mace,6,Mysticism,adept,,Telekinesis,2
+Telek Bullet,Accelerate a small object to strike like a firearm round,6,Mysticism,adept,,Telekinesis,3
+Telek Shield,Erect a kinetic defense screen against solid missiles,6,Mysticism,adept,,Telekinesis,3
+Levitate,Levitate self or limited mass,6,Mysticism,adept,,Telekinesis,3
+Stress,Perceive or create stress points to enhance penetration or break bonds,6,Mysticism,adept,,Telekinesis,4
+Flight,Fly using telekinetic power,6,Mysticism,adept,,Telekinesis,4
+Grenade,Cause a small object to explode like a grenade,6,Mysticism,adept,,Telekinesis,4
+Pyro PSI,Generate flame effects or start fires,6,Mysticism,adept,,Telekinesis,5
+Cryo PSI,Reduce kinetic energy to freeze or cool matter,6,Mysticism,adept,,Telekinesis,5
+Morass,Turn solid footing into a soft morass that slows movement,6,Mysticism,adept,,Telekinesis,6
+Energize,Recharge portable power cells by touch,6,Mysticism,adept,,Telekinesis,7
+MagnetoScreen,Erect a force screen that turns aside projectiles,6,Mysticism,adept,,Telekinesis,8
+NegaField,Disrupt electronic circuitry in an area,6,Mysticism,adept,,Telekinesis,8
+RadShield,Erect a personal field that deflects radiation,6,Mysticism,adept,,Telekinesis,8
+BattleScreen,Erect a personal forcefield battlescreen,6,Mysticism,adept,,Telekinesis,9
+Power,Channel energy to supply starship power requirements,6,Mysticism,adept,,Telekinesis,9
+ManeuverDrive,Augment a spacecraft's maneuver drive,6,Mysticism,adept,,Telekinesis,9
+FTL Drive,Augment a starship's FTL rating,6,Mysticism,adept,,Telekinesis,10
+Teleportation,Instantaneously travel to a known location within range,6,Mysticism,adept,,Teleportation,2-10
+Dematerialize,Phase through solid matter,6,Mysticism,adept,,Teleportation,6
+Living Matrix,Oneness with the Force granting mental advantages,6,Mysticism,adept,,Teleportation,10
+Sense Danger,Heightened awareness of potential danger,6,Mysticism,adept,,Clairvoyance,1
+Locate Danger,Determine direction and position of a sensed danger,6,Mysticism,adept,,Clairvoyance,1
+FarSee,Sense characteristics of a distant location,6,Mysticism,adept,,Clairvoyance,2
+Detect PSI,Sense the presence of active psionic forces,6,Mysticism,adept,,Clairvoyance,2
+Sense Poison,Detect poisonous substances nearby,6,Mysticism,adept,,Clairvoyance,2
+TruthTell,Detect lies by analyzing belief,6,Mysticism,adept,,Clairvoyance,3
+Storytell,Learn facts about an object by handling it,6,Mysticism,adept,,Clairvoyance,3
+Clairaudience,Overhear spoken words at a distance,6,Mysticism,adept,,Clairvoyance,3
+Mind Shield,Mental barrier against probing,6,Mysticism,adept,,Clairvoyance,3
+TrueSight,See through illusions to perceive true nature,6,Mysticism,adept,,Clairvoyance,4
+PathFind,Receive a mental picture of the correct route,6,Mysticism,adept,,Clairvoyance,4
+Precognition,Receive a foreshadowing vision of the future,6,Mysticism,adept,,Clairvoyance,5
+Perception,See without normal vision or with enhanced range,6,Mysticism,adept,,Clairvoyance,5-10
+Psychic Force,Tap the Force for stamina boosts,6,Mysticism,adept,,Clairvoyance,6
+Living Matrix,Oneness with the Force,6,Mysticism,adept,,Clairvoyance,10
+Mind Shield,Always maintain a rigid mind shield,6,Mysticism,adept,,Telergy,2-10
+Strength,Psycho-physical conditioning that boosts Strength,6,Mysticism,adept,,Telergy,2-10
+Constitution,Psycho-physical conditioning that boosts Constitution,6,Mysticism,adept,,Telergy,2-10
+Agility,Psycho-physical conditioning that boosts Agility,6,Mysticism,adept,,Telergy,2-10
+Dexterity,Psycho-physical conditioning that boosts Dexterity,6,Mysticism,adept,,Telergy,2-10
+Intelligence,Mental development that boosts Intelligence,6,Mysticism,adept,,Telergy,2-10
+Intuition,Mental development that boosts Intuition,6,Mysticism,adept,,Telergy,2-10
+Leadership,Development that boosts Leadership,6,Mysticism,adept,,Telergy,2-10
+Bravery,Development that boosts Bravery,6,Mysticism,adept,,Telergy,2-10
+Empathy,Development that boosts Empathy,6,Mysticism,adept,,Telergy,2-10
+Awareness,Overall competence granting Force access,6,Mysticism,adept,,Telergy,2-10
+Living Matrix,Oneness with the Force,6,Mysticism,adept,,Telergy,10
+Self Heal,Heal personal damage daily using the Force,6,Mysticism,adept,,Concord,5
+Heal,Heal damage to another by touch,6,Mysticism,adept,,Concord,5
+PainStop,Block personal pain or bestow the effect,6,Mysticism,adept,,Concord,5
+Mental Attack,Deliver telepathic attacks equal to development level,6,Mysticism,adept,,Concord,5
+PainTouch,Deliver a pain attack by touch,6,Mysticism,adept,,Concord,5
+SensoryBlock,Temporarily remove one sense from a target,6,Mysticism,adept,,Concord,5
+DeathTouch,Deliver a lethal attack by touch,6,Mysticism,adept,,Concord,6
+Self Cure,"Cure personal disease, poison, or drug effects",6,Mysticism,adept,,Concord,6
+Cure,Aid another against potentially fatal disease,6,Mysticism,adept,,Concord,6
+Regenerate Self,Regrow lost limbs or organs,6,Mysticism,adept,,Concord,9
+Revivify,Attempt to revive the recently dead,6,Mysticism,adept,,Concord,9`;
+
+function parsePsychicPowersCsv(csv) {
+  return parseCsvWithHeader(csv).map((r) => {
+    const dotsRaw = (r.dots || '').trim();
+    const rangeMatch = dotsRaw.match(/^(\d+)\s*-\s*(\d+)$/);
+    const maxRank = rangeMatch ? Number(rangeMatch[2]) : (Number(dotsRaw) || 1);
+    return {
+      name: r.name,
+      description: r.description,
+      attribute: parseMultiValue(r.attributes).map(capitalizeToken),
+      minTl: Number(r.min_tl) || 0,
+      focus: parseMultiValue(r.focus).map(capitalizeToken),
+      race: parseMultiValue(r.race).map(capitalizeToken),
+      power: r.power,
+      dots: dotsRaw,
+      maxRank,
+    };
+  });
+}
+
+const PSYCHIC_POWERS = parsePsychicPowersCsv(PSYCHIC_POWERS_CSV);
 
 const MODERN_SKILLS_CSV = `name,description,attribute,focus,race`;
 const DYSTOPIAN_SKILLS_CSV = `name,description,attribute,focus,race`;
 const SCIFI_SKILLS_CSV = `name,description,attribute,focus,race`;
 const APOCALYPTIC_SKILLS_CSV = `name,description,attribute,focus,race`;
 
+// Morrow Project's own skill file (data/morrow_project_skills.csv, edited
+// via vg-tools) has been rewritten by the Venn Guide since this was first
+// embedded — this copy is kept in sync with that file as of this edit;
+// publishing a Game Set from vg-tools is what keeps it from going stale
+// again without a manual resync like this one. Its focus values match the
+// genre's own renamed Expertise classes (soldier/scout/science/contact,
+// not martial/covert/adept/shepherd).
+const MORROW_PROJECT_SKILLS_CSV = `name,description,min_tl,attributes,focus,race
+Accounting,Track resources; debts; and simple ledgers,1,Intellect,,
+Art,Create art in a chosen medium (painting; music; sculpture; etc.),1,Dexterity;Charisma,,
+Astronomy,Use stars for navigation; timing; and basic observation,3,Intellect,,
+Bargain,Negotiate trades; prices; and deals,1,Charisma;Intellect,,
+Boat/Row,Operate small boats; canoes; kayaks; and rafts,1,Dexterity;Agility,,
+Climb,Scale walls; ruins; cliffs; and natural obstacles,1,Strength;Agility,,
+Craft,Perform a practical craft (specify field),1,Dexterity;Intellect,,
+Dodge,Avoid attacks and sudden dangers,1,Agility;Dexterity,,
+Drive Auto,Operate cars; light trucks; and similar vehicles,4,Dexterity;Agility,,
+Drive Truck,Operate heavy trucks and commercial vehicles,4,Dexterity;Agility;Strength,,
+Fast Talk,Rapid persuasion or misdirection under pressure,1,Charisma;Intellect,,
+First Aid,Provide emergency care and stabilize injuries,1,Dexterity;Willpower,,
+Hide,Conceal yourself from observation,1,Agility;Intuition,,
+History,Knowledge of past events; local history; and pre-collapse records,1,Intellect,,
+Jump,Leap gaps; obstacles; or from heights,1,Strength;Agility,,
+Listen,Hear distant; faint; or concealed sounds,1,Intuition,,
+Own Language,Speak; read; and write your native language fluently,1,Intellect,,
+Other Language,Speak and understand a language other than your own,1,Intellect,,
+Persuade,Convince others through reason; charm; or argument,1,Charisma;Intellect,,
+Ride,Handle horses or other mounts,1,Agility;Intuition,,
+Sneak,Move without being noticed,1,Agility;Dexterity,,
+Spot Hidden,Notice concealed objects; people; or traps,1,Intuition,,
+Swim,Swim and stay afloat in open water,1,Strength;Constitution,,
+Throw,Throw objects accurately for distance or effect,1,Dexterity;Agility,,
+Tracking,Follow people or animals by signs and trails,1,Intuition;Agility,Scout,
+Woodworking,Carpentry; carving; and working with wood,1,Dexterity;Intellect,,
+Masonry,Work with stone; brick; and concrete,1,Strength;Intellect,,
+Metalworking,Basic smithing and metal repair,1,Strength;Dexterity,,
+Ski,Move efficiently on snow or ice,1,Agility;Dexterity,,
+Sail,Operate sail-powered vessels,1,Dexterity;Intellect,,
+Military Science,Knowledge of military organization; logistics; and doctrine,1,Intellect,soldier,
+Demolitions,Handle; place; and disarm explosives,3,Intellect;Dexterity,soldier;science,
+Operate Heavy Machinery,Run generators; construction equipment; or industrial machines,3,Dexterity;Intellect,soldier;science,
+Parachute,Perform parachute jumps and land safely,4,Agility;Constitution,soldier;scout,
+Conceal,Hide objects; caches; or people from search,1,Agility;Intuition,scout;soldier,
+Cryptography,Create and break codes and ciphers,4,Intellect;Intuition,scout;science,
+Disguise,Alter appearance and mannerisms to avoid recognition,1,Charisma;Dexterity,scout,
+Forgery,Create or alter documents; records; and credentials,1,Dexterity;Intellect,scout;science,
+Lockpicking,Open locks and simple mechanical security devices,3,Dexterity;Intellect,scout,
+Tradecraft,Espionage techniques; dead drops; and scout operations,1,Intellect;Agility,scout,
+Hypnosis,Induce trance states for questioning or therapy,3,Willpower;Charisma,scout;contact,
+Anthropology,Understand cultures; customs; and social structures,4,Intellect;Intuition,science;contact,
+Archaeology,Recover and interpret pre-collapse artifacts and sites,4,Intellect;Intuition,science,
+Biology,Knowledge of living organisms and ecosystems,4,Intellect,science,
+Botany,Identify plants and their uses for food; medicine; or materials,4,Intellect;Intuition,science;contact,
+Cartography,Create and read maps of terrain and settlements,3,Intellect;Dexterity,science;soldier,
+Chemistry,Practical chemistry for purification; analysis; or simple synthesis,3,Intellect,science,
+Computer Use,Operate surviving computers and digital systems,5,Intellect;Dexterity,science,
+Electrical Repair,Repair electrical systems; wiring; and simple circuits,4,Dexterity;Intellect,science,
+Electronics,Work with electronic devices and circuits,5,Intellect;Dexterity,science,
+Fieldcraft,Advanced outdoor living; concealment; and movement,1,Intuition;Agility,science;soldier;scout,
+Forensics,Analyze physical evidence and causes of injury or death,3,Intellect;Intuition,science;scout,
+Geology,Understand terrain; soil; minerals; and geological hazards,4,Intellect,science,
+Library Use,Locate and extract information from books; archives; or records,4,Intellect;Intuition,science;contact,
+Mathematics,Apply mathematics to practical and technical problems,1,Intellect,science,
+Mechanical Repair,Restore engines; generators; tools; and mechanical devices,3,Dexterity;Intellect,science;soldier,
+Medicine,Diagnose and treat injuries and illness beyond first aid,1,Intellect;Dexterity,science;contact,
+Navigation (Land),Overland navigation using landmarks; sun; and stars,1,Intellect;Intuition,science;soldier;scout,
+Navigation (Sea/Air),Navigation for boats or aircraft,4,Intellect;Intuition,science;soldier,
+Occult,Knowledge of mystical; fringe; or unexplained beliefs,1,Intellect;Intuition,science;contact,
+Pharmacy,Knowledge of drugs; medicines; and their effects,1,Intellect,science;contact,
+Photography,Capture and process images with available equipment,4,Dexterity;Intuition,science;scout,
+Physics,Apply principles of physics to practical problems,3,Intellect,science,
+Pilot; Propeller,Fly fixed-wing aircraft,5,Dexterity;Intellect,science;soldier,
+Pilot; Helicopter,Fly helicopters and rotary-wing aircraft,5,Dexterity;Intellect,science;soldier,
+Psychology,Understand human behavior; motives; and mental states,1,Intellect;Intuition,science;contact;scout,
+Signals,Operate radios and basic communication equipment,4,Intellect;Dexterity,science;soldier;scout,
+Surgery,Perform invasive medical procedures,3,Intellect;Dexterity,science,
+Zoology,Knowledge of animals and their behavior,1,Intellect;Intuition,science,
+Teach,Instruct others in skills or knowledge,1,Intellect;Charisma,contact;science,
+Law,Understand formal laws; contracts; or informal community rules,3,Intellect,contact,
+Drive Military,Drive heavy equipment like APC; troop carriers and tanks,,,,
+Mechanical Repair; Heavy,Heavy or large engine and mechanical reapir,,,,
+Pilot; Jet,Piloting of jet aircraft,6,,Science,`;
+
 const MODERN_SKILLS = parseSkillsCsv(MODERN_SKILLS_CSV);
 const DYSTOPIAN_SKILLS = parseSkillsCsv(DYSTOPIAN_SKILLS_CSV);
 const SCIFI_SKILLS = parseSkillsCsv(SCIFI_SKILLS_CSV);
 const APOCALYPTIC_SKILLS = parseSkillsCsv(APOCALYPTIC_SKILLS_CSV);
+const MORROW_PROJECT_SKILLS = parseSkillsCsv(MORROW_PROJECT_SKILLS_CSV);
 
 // Fantasy contributes nothing extra here: its non-magic skills already live
 // in the shared baseline SKILLS, and its magic skills (FANTASY_SKILLS) are
@@ -762,20 +1124,25 @@ const GENRE_SKILLS = {
   Dystopian: DYSTOPIAN_SKILLS,
   SciFi: SCIFI_SKILLS,
   Apocalyptic: APOCALYPTIC_SKILLS,
+  'morrow_project': MORROW_PROJECT_SKILLS,
 };
 
 // The Skills panel's actual list: every baseline (magic-free) Skill, plus the
 // active genre's own additions, plus FANTASY_SKILLS (the Spell:/Miracle:
-// casting skills) whenever Magic is enabled — regardless of genre.
-function getActiveSkills(genre, magicEnabled) {
-  return SKILLS.concat(GENRE_SKILLS[genre] || []).concat(magicEnabled ? FANTASY_SKILLS : []);
+// casting skills) whenever Magic is enabled, plus PSYCHIC_POWERS whenever
+// Psychic is enabled — neither gated by genre, so either can be "bent" onto
+// any genre independent of which one is selected.
+function getActiveSkills(genre, magicEnabled, psychicEnabled) {
+  return SKILLS.concat(GENRE_SKILLS[genre] || [])
+    .concat(magicEnabled ? FANTASY_SKILLS : [])
+    .concat(psychicEnabled ? PSYCHIC_POWERS : []);
 }
 
 // Every Skill across every genre, regardless of which is currently active —
 // used only to pre-seed a fresh character's skillSpend ledger so switching
-// genre (or toggling Magic) later never loses track of a skill's spend
-// because its ledger entry didn't exist yet.
-const ALL_SKILLS = SKILLS.concat(FANTASY_SKILLS, MODERN_SKILLS, DYSTOPIAN_SKILLS, SCIFI_SKILLS, APOCALYPTIC_SKILLS);
+// genre (or toggling Magic/Psychic) later never loses track of a skill's
+// spend because its ledger entry didn't exist yet.
+const ALL_SKILLS = SKILLS.concat(FANTASY_SKILLS, MODERN_SKILLS, DYSTOPIAN_SKILLS, SCIFI_SKILLS, APOCALYPTIC_SKILLS, MORROW_PROJECT_SKILLS, PSYCHIC_POWERS);
 
 // A skill with any Race listed only ever appears in the Race tab (never a
 // class tab or General), and a class tab only shows skills explicitly
@@ -796,10 +1163,10 @@ function isSkillForRace(skill, raceName) {
 }
 
 // General/Race skills aren't tied to one class, so a purchase on them draws
-// from whichever class currently has points to spend (Fighter first as a
+// from whichever class currently has points to spend (Martial first as a
 // deterministic tie-break), falling back to the character's Focus.
 function pickSpendableClass(character) {
-  return CLASSES.find((cls) => getClassSkillPointsAvailable(character, cls) > 0) || character.focus;
+  return getActiveClasses(character.genre).find((cls) => getClassSkillPointsAvailable(character, cls) > 0) || character.focus;
 }
 
 // True if the character's Focus or Race matches the skill's bonus lists.
@@ -828,7 +1195,7 @@ function getSkillSpentRank(character, skill) {
 // auto-min rank sits "under" whatever's been paid for, so every paid rank
 // (ledger step) always adds exactly 1 to the effective rank.
 function getSkillEffectiveRank(character, skill) {
-  return Math.min(SKILL_RANKS_MAX, getSkillSpentRank(character, skill) + getSkillAutoMinRank(character, skill));
+  return Math.min(skill.maxRank || SKILL_RANKS_MAX, getSkillSpentRank(character, skill) + getSkillAutoMinRank(character, skill));
 }
 
 function getSkillTarget(character, skill) {
@@ -847,7 +1214,10 @@ function setSkillRankForClass(character, skill, cls, targetRank) {
 function toggleSkillRankForClass(character, skill, cls, dotIndex) {
   const effective = getSkillEffectiveRank(character, skill);
   const targetRank = effective === dotIndex ? dotIndex - 1 : dotIndex;
-  setSkillRankForClass(character, skill, cls, clamp(targetRank, SKILL_RANKS_MIN, SKILL_RANKS_MAX));
+  // A Psychic Power caps its own buyable dots below the shared 20-dot grid
+  // (skill.maxRank, from its `dots` column) — every other skill is
+  // uncapped beyond the grid itself.
+  setSkillRankForClass(character, skill, cls, clamp(targetRank, SKILL_RANKS_MIN, skill.maxRank || SKILL_RANKS_MAX));
 }
 
 // ---------------------------------------------------------------------------
@@ -863,7 +1233,7 @@ function toggleSkillRankForClass(character, skill, cls, dotIndex) {
 
 const SPECIAL_CSV = `name,description,stamina cost,focus,race
 Stone Kenning,You can commune with stone to know depth; direction; sloping; or traps,5,,dwarf
-Magic Resistance,You roll twice for Defy checks against Magic,0,,dwarf
+Magic Resistance,You roll twice for Defy checks against Mysticism,0,,dwarf
 Dark Sight,You can activate your vision to see in the dark,0,,dwarf
 Stone Shaper,You can shape 1 cubic foot of stone by singing to it.,5,,dwarf
 Ore Delver,You can sense and follow ore lines,0,,dwarf
@@ -874,34 +1244,34 @@ Tree Whisperer,You understand the speech of trees when they choose to speak,0,,e
 Animal Empathy,You can feel and exert your feelings over a single natural creatures,5,,elf
 Nature Stride,You move through difficult terrain without being effected,0,,elf;halfling
 Indomitable Will,You can resist any magical effect even if you fail your Defy check for as long as you pay the stamina cost,10,,halfling
-Fey Resistance,You get two Defy checks against Fey Magic,0,,elf;halfling
-Florentine,You are able to fight with 2 1-hand weapons without penalty. One must be shorter than the other,0,fighter;outlaw
-Dispel Magic,You are able to spend stamina to negate a spell,0,wiz
-Identify,You may study magic items to understand what they do for stamina cost per power revealed,5,wiz,
-Detect Aura,You can tell if an item or location is has a spell on it,5,wiz,
-Rebuke the Foe,You can use the power of your god to rebuke his foes,5,priest,
-Lay Hands,You can heal the sick and injured 1 point per stamina cost,1,priest,
-Endurance,You reduce combat stamina cost by 1/2,0,fighter
-Formation Fighting,You provide your Melee Defense Shield to the person next to you not yourself,Physique,fighter;priest,
-Fortifications,Basic engineering of digging ditches; raising earth ramparts; planting palisades,Strength,fighter,
-Armor Use,You remove penalties from wearing medium armor,0,fighter;priest
-Armor Expertise,You remove penalties from wearing heavy armor,0,fighter;priest
-Phalanx,You can hold a space given the right number of participants with phalanx,5,Fighter,dwarf
-Ley Sense,Feel ambient magical currents and places of power,5,wiz;priest,
+Fey Resistance,You get two Defy checks against Fey Mysticism,0,,elf;halfling
+Florentine,You are able to fight with 2 1-hand weapons without penalty. One must be shorter than the other,0,martial;covert
+Dispel Magic,You are able to spend stamina to negate a spell,0,adept
+Identify,You may study magic items to understand what they do for stamina cost per power revealed,5,adept,
+Detect Aura,You can tell if an item or location is has a spell on it,5,adept,
+Rebuke the Foe,You can use the power of your god to rebuke his foes,5,shepherd,
+Lay Hands,You can heal the sick and injured 1 point per stamina cost,1,shepherd,
+Endurance,You reduce combat stamina cost by 1/2,0,martial
+Formation Fighting,You provide your Melee Defense Shield to the person next to you not yourself,Physique,martial;shepherd,
+Fortifications,Basic engineering of digging ditches; raising earth ramparts; planting palisades,Strength,martial,
+Armor Use,You remove penalties from wearing medium armor,0,martial;shepherd
+Armor Expertise,You remove penalties from wearing heavy armor,0,martial;shepherd
+Phalanx,You can hold a space given the right number of participants with phalanx,5,martial,dwarf
+Ley Sense,Feel ambient magical currents and places of power,5,adept;shepherd,
 Lucky Break,Roll twice on any Defy check,Intuition,0,,halfling
-Sneak Attack,Strike when an enemy leaves an opening or turns away,5,fighter;outlaw,
-Parry,Use a ROF to deflect incoming weapon attacks with your weapon,0,fighter;outlaw,
-Extra Attack,Add +1 ROF to any weapon,2,Fighter;priest;outlaw
-Double Attack,Add +1 ROF to any weapon,2,Fighter;priest
-Triple Attack,Add +1 ROF to any weapon,2,Fighter
-Point Blank Shot,Shoot in close range,0,Fighter,elf
+Sneak Attack,Strike when an enemy leaves an opening or turns away,5,martial;covert,
+Parry,Use a ROF to deflect incoming weapon attacks with your weapon,0,martial;covert,
+Extra Attack,Add +1 ROF to any weapon,2,martial;shepherd;covert
+Double Attack,Add +1 ROF to any weapon,2,martial;shepherd
+Triple Attack,Add +1 ROF to any weapon,2,martial
+Point Blank Shot,Shoot in close range,0,martial,elf
 Poison Resistance,Shrug off many common toxins and bad drink,Constitution,,dwarf
-Instant Cover,Cover short distances at a burst of speed,5,fighter;outlaw,
-Steady Hands,Perform delicate work while under stress or in motion,5,outlaw,halfling,
-War Mage,You know the power level of magics on the battlefield,5,Wiz,
-Area Effect,You may spend some of your ranks to effect a 5x5 area and reduce damage dice,0,wiz;priest,
-Extra Spell,You select 1 additional spell each level after selecting this ability,0,wiz
-Blessing of Miracles,You select 1 additional miracle each level after selecting this ability,0,priest`;
+Instant Cover,Cover short distances at a burst of speed,5,martial;covert,
+Steady Hands,Perform delicate work while under stress or in motion,5,covert,halfling,
+War Mage,You know the power level of magics on the battlefield,5,adept,
+Area Effect,You may spend some of your ranks to effect a 5x5 area and reduce damage dice,0,adept;shepherd,
+Extra Spell,You select 1 additional spell each level after selecting this ability,0,adept
+Blessing of Miracles,You select 1 additional miracle each level after selecting this ability,0,shepherd`;
 
 function parseSpecialFields(fields) {
   if (fields.length > 5 && fields[fields.length - 1] === '') {
@@ -977,18 +1347,18 @@ function toggleSpecialForClass(character, special, cls) {
   const target = owned ? 0 : 1;
   setLedgerRankForClass(character.specialSpend, special.name, cls, target, getClassSkillPointsAvailable(character, cls));
   // "Extra Spell"/"Blessing of Miracles" grant +1 grimoire slot for every
-  // Wiz/Priest dot gained AFTER the special is acquired (not retroactive) —
+  // Adept/Shepherd dot gained AFTER the special is acquired (not retroactive) —
   // record the rank at the moment ownership actually starts.
   if (!owned && isSpecialOwned(character, special)) {
-    if (special.name === 'Extra Spell') character.extraSpellBaseRank = character.classDots.Wiz || 0;
-    else if (special.name === 'Blessing of Miracles') character.extraMiracleBaseRank = character.classDots.Priest || 0;
+    if (special.name === 'Extra Spell') character.extraSpellBaseRank = character.classDots.Adept || 0;
+    else if (special.name === 'Blessing of Miracles') character.extraMiracleBaseRank = character.classDots.Shepherd || 0;
   }
 }
 
 // ---------------------------------------------------------------------------
 // Spells (data/spells.csv). A reference grimoire, not point-bought or owned
 // individually — every spell becomes visible once a character has spent at
-// least 1 rank in Wiz (independent of current Focus). The file is proper
+// least 1 rank in Adept (independent of current Focus). The file is proper
 // quoted CSV (fields may contain commas), so it needs a real parser rather
 // than the naive split(',') the other data files use.
 // ---------------------------------------------------------------------------
@@ -1140,16 +1510,16 @@ const SPELLS = parseCsvWithHeader(FANTASY_SPELLS_CSV).map((r) => ({
 const SPELL_SCHOOLS = [...new Set(SPELLS.map((s) => s.school))].sort();
 
 // Spells aren't purchased with the shared class-point pool — instead every
-// Wiz rank grants exactly one learnable-spell slot. Every spell is visible
-// once 1+ ranks are in Wiz, regardless of current Focus, but only as many
-// can be *known* at once as Wiz ranks allow. Magic itself is gated by the
+// Adept rank grants exactly one learnable-spell slot. Every spell is visible
+// once 1+ ranks are in Adept, regardless of current Focus, but only as many
+// can be *known* at once as Adept ranks allow. Magic itself is gated by the
 // character's independent magicEnabled toggle, not by genre — a player can
 // "genre-bend" magic onto any setting, or turn it off even in Fantasy.
 function hasSpellAccess(character) {
-  return character.magicEnabled && (character.classDots.Wiz || 0) >= 1;
+  return character.magicEnabled && (character.classDots.Adept || 0) >= 1;
 }
 
-// If the character owns the "Extra Spell" special, every Wiz dot gained
+// If the character owns the "Extra Spell" special, every Adept dot gained
 // after acquiring it grants an extra bonus slot on top of its normal one
 // (dots held before acquiring it don't retroactively grant the bonus).
 function getSpellSlotCountForRank(character, rank) {
@@ -1162,7 +1532,7 @@ function getSpellSlotCountForRank(character, rank) {
 }
 
 function getSpellSlotCount(character) {
-  return getSpellSlotCountForRank(character, character.classDots.Wiz || 0);
+  return getSpellSlotCountForRank(character, character.classDots.Adept || 0);
 }
 
 function getSpellsLearnedCount(character) {
@@ -1200,8 +1570,8 @@ function toggleSpellLearned(character, spell) {
 }
 
 // ---------------------------------------------------------------------------
-// Miracles (data/miracle.csv). Same rules as Spells above, but for Priest:
-// a reference grimoire, visible once 1+ ranks are in Priest, with a free
+// Miracles (data/miracle.csv). Same rules as Spells above, but for Shepherd:
+// a reference grimoire, visible once 1+ ranks are in Shepherd, with a free
 // learned/not-learned toggle per entry (no point cost).
 // ---------------------------------------------------------------------------
 
@@ -1314,16 +1684,16 @@ const MIRACLES = parseCsvWithHeader(FANTASY_MIRACLE_CSV).map((r) => ({
 const MIRACLE_SCHOOLS = [...new Set(MIRACLES.map((s) => s.school))].sort();
 
 // Miracles aren't purchased with the shared class-point pool — instead every
-// Priest rank grants exactly one learnable-miracle slot. Every miracle is
-// visible once 1+ ranks are in Priest, regardless of current Focus, but only
-// as many can be *known* at once as Priest ranks allow. Gated by the same
+// Shepherd rank grants exactly one learnable-miracle slot. Every miracle is
+// visible once 1+ ranks are in Shepherd, regardless of current Focus, but only
+// as many can be *known* at once as Shepherd ranks allow. Gated by the same
 // magicEnabled toggle as Spells — see hasSpellAccess.
 function hasMiracleAccess(character) {
-  return character.magicEnabled && (character.classDots.Priest || 0) >= 1;
+  return character.magicEnabled && (character.classDots.Shepherd || 0) >= 1;
 }
 
 // Same bonus mechanic as getSpellSlotCountForRank above, but for the
-// "Blessing of Miracles" special and Priest dots.
+// "Blessing of Miracles" special and Shepherd dots.
 function getMiracleSlotCountForRank(character, rank) {
   const blessing = SPECIALS.find((s) => s.name === 'Blessing of Miracles');
   if (blessing && isSpecialOwned(character, blessing)) {
@@ -1334,7 +1704,7 @@ function getMiracleSlotCountForRank(character, rank) {
 }
 
 function getMiracleSlotCount(character) {
-  return getMiracleSlotCountForRank(character, character.classDots.Priest || 0);
+  return getMiracleSlotCountForRank(character, character.classDots.Shepherd || 0);
 }
 
 function getMiraclesLearnedCount(character) {
@@ -1583,14 +1953,1100 @@ const EQUIPMENT_CSV = `"Item","Type","Description","weight(lbs)","cost(GT)","TL"
 "Weapon oil","general","Protective oil.","0.3","0.5",""
 "Armor repair kit","general","Rings, leather, rivets.","4","8",""`;
 
-const EQUIPMENT = parseCsvWithHeader(EQUIPMENT_CSV).map((r) => ({
-  name: r.Item,
-  type: r.Type,
-  description: r.Description,
-  weight: parseFloat(r['weight(lbs)']) || 0,
-  cost: parseFloat(r['cost(GT)']) || 0,
-  tl: r.TL ? Number(r.TL) : null,
-}));
+const MODERN_EQ_CSV = `"Item","Type","Description","weight(lbs)","cost($)","TL"
+"Dagger","weapons","Short blade for close work and throwing.","1","40",""
+"Knife","weapons","Camp and kitchen knife, poor as a weapon.","0.5","10",""
+"Shortsword","weapons","One-handed blade for tight halls.","3","160",""
+"Sword Arming","weapons","Standard one-handed knight's sword.","4","300",""
+"Sword Long","weapons","Hand-and-a-half blade.","5","500",""
+"Sword Great","weapons","Two-handed cutting sword.","8","800",""
+"Hand axe","weapons","One-handed axe; also splits kindling.","3","100",""
+"Battleaxe","weapons","Heavy one- or two-handed war axe.","6","240",""
+"Greataxe","weapons","Two-handed executioner's axe.","10","500",""
+"Mace","weapons","Flanged crushing head.","5","160",""
+"WarHammer","weapons","Pick and face for mail and plate.","5","240",""
+"Maul","weapons","Two-handed hammer.","12","300",""
+"Spear Short","weapons","Thrusting shaft, 6–7 feet.","6","80",""
+"Pike","weapons","Long formation spear, awkward indoors.","12","160",""
+"Halberd","weapons","Axe-blade, hook, and point on a pole.","12","300",""
+"Quarterstaff","weapons","Hardwood staff.","4","4",""
+"Club","weapons","Simple bludgeon.","3","2",""
+"Morning Star","weapons","Spiked striking head.","6","240",""
+"Flail","weapons","Hinged striking head; ignores some shields in close.","6","200",""
+"Rapier","weapons","Thrusting civilian blade.","2","400",""
+"Scimitar","weapons","Curved slashing blade.","3","360",""
+"Hand crossbow","weapons","One-handed light crossbow.","3","600",""
+"Light Crossbow","weapons","Standard spanned bow.","6","400",""
+"Heavy Crossbow","weapons","Slow, hard-hitting spanned bow.","12","800",""
+"Short Bow","weapons","Hunting bow.","2","240",""
+"Longbow","weapons","War bow; needs room to draw.","3","600",""
+"Sling","weapons","Leather pouch and cords.","0.2","2",""
+"Javelin thrown","weapons","Light throwing spear.","2","20",""
+"Axe Thrown","weapons","Balanced hatchet.","2","60",""
+"Arrows (20)","weapons","Sheaf for bows.","2","20",""
+"Quarrels (20)","weapons","Bolts for crossbows.","2","30",""
+"Sling bullets (20)","weapons","Lead or baked clay.","2","4",""
+"Blowgun","weapons","Tube and darts sold separate.","1","80",""
+"Darts (20)","weapons","Blowgun or throwing darts.","1","20",""
+"Whip","weapons","Long lash.","2","40",""
+"Man-catcher","weapons","Forked capture pole.","8","240",""
+"Fighting Net","weapons","Entangling net.","6","100",""
+"Caltrops (bag)","weapons","Enough to cover 5 feet.","2","20",""
+"BrassKnuckles","weapons","Metal knuckledusters worn over the fist.","0.5","40",""
+"Cudgel","weapons","Stout wooden club, quick and dirty.","2","10",""
+"Sword Stabbing","weapons","Narrow blade built for the thrust.","2","300",""
+"Sword Willow-leaf","weapons","Elven sword with a tapered leaf-shaped blade.","3","440",""
+"Sword Broad","weapons","Wide double-edged blade for heavy cuts.","5","440",""
+"Sword Foil","weapons","Light thrusting blade for quick, precise strikes.","2","360",""
+"Sword Sabre","weapons","Curved cavalry blade, quick in the cut.","3","400",""
+"Sword Katana","weapons","Curved single-edged blade, prized for its keen edge.","3","700",""
+"Hammer","weapons","One-handed dwarven war hammer.","4","200",""
+"SpikeHammer","weapons","Hammer fitted with a piercing spike.","5","280",""
+"Nordic/Norman Axe","weapons","One-handed axe favored by northern raiders.","4","240",""
+"WarAxe","weapons","Heavy two-handed dwarven battle axe.","8","400",""
+"Lance","weapons","Long cavalry lance for mounted combat.","10","360",""
+"Lance(charge)","weapons","Long cavalry lance, deadliest at a charge.","10","400",""
+"Sling Staff","weapons","Staff-sling for hurling stones with greater force.","3","160",""
+"Composite Bow","weapons","Layered bow with extra draw power.","2","800",""
+"Dagger Thrown","weapons","Balanced dagger meant for throwing.","1","40",""
+"Club Thrown","weapons","Weighted club balanced for throwing.","2","40",""
+"Rock Thrown","weapons","Fist-sized stone, good for throwing.","1","1",""
+"Padded jack","armor","Quilted cloth armor.","8","100","3"
+"Leather jerkin","armor","Boiled or layered leather.","10","200","3"
+"Studded leather","armor","Leather with metal rivets.","15","500","3"
+"Hide armor","armor","Thick hides and pelts.","20","240","3"
+"Mail shirt","armor","Torso mail.","25","1200","3"
+"Mail hauberk","armor","Mail to the knee, with sleeves.","40","2000","3"
+"Scale shirt","armor","Overlapping metal scales.","30","1600","3"
+"Breastplate","armor","Solid chest and back.","20","4000","3"
+"Half plate","armor","Breast, greaves, and vambraces.","40","7000","3"
+"Full plate","armor","Complete articulated harness.","55","15000","3"
+"Helmet, cap","armor","Simple steel cap.","3","160","3"
+"Helmet, open","armor","Nasal or kettle helm.","5","300","3"
+"Helmet, closed","armor","Visored helm.","8","800","3"
+"Shield, buckler","armor","Small fist shield.","3","100","3"
+"Shield, round","armor","Common wooden shield with boss.","6","160","3"
+"Shield, kite","armor","Tall cavalry or foot shield.","10","240","3"
+"Shield, tower","armor","Full-height pavise.","18","400","3"
+"Barding, leather","armor","Horse leather armor.","40","800","3"
+"Barding, mail","armor","Horse mail.","70","4000","3"
+"Barding, plate","armor","Horse plate.","90","10000","3"
+"Backpack","general","Leather pack, about 40 lb capacity.","2","40",""
+"Sack","general","Burlap or canvas bag.","0.5","2",""
+"Belt pouch","general","Small pouch for coin and flint.","0.2","6",""
+"Waterskin (1 gal)","general","Filled skin; weight is full.","8","20",""
+"Wineskin (1 gal)","general","As waterskin, for drink.","8","20",""
+"Flask, metal","general","Pint flask.","1","40",""
+"Vial, glass","general","Small stopper vial.","0.1","20",""
+"Crowbar","general","Iron bar for prying.","5","40",""
+"Hammer","general","Camp and nail hammer.","2","20",""
+"Sledge","general","Heavy driving hammer.","10","60",""
+"Pick, miner's","general","Breaking stone and packed earth.","8","80",""
+"Shovel","general","Digging spade.","6","40",""
+"Hand saw","general","Wood saw.","2","40",""
+"Woodcutter's axe","general","Felling axe, not balanced for war.","6","60",""
+"Block and tackle","general","Rope pulley for heavy lifts.","5","160",""
+"Chain (10 ft)","general","Iron links.","10","160",""
+"Rope, hemp (50 ft)","general","Common rope.","10","20",""
+"Rope, silk (50 ft)","general","Lighter, stronger line.","5","200",""
+"Grappling hook","general","Three-prong hook.","4","40",""
+"Pitons (10)","general","Iron spikes for climbing.","5","40",""
+"Manacles","general","Wrist irons and short chain.","2","160",""
+"Lock, simple","general","Cheap padlock.","0.5","160",""
+"Lock, good","general","Better wards.","1","400",""
+"Lock, fine","general","Hard to pick.","1","1000",""
+"Thieves' tools","general","Picks, shims, small saw, files.","1","500",""
+"Artisan tools (set)","general","One trade: smith, carpenter, tailor, etc.","8","400",""
+"Healer's kit","general","Bandages, needle, salves for 10 uses.","3","160",""
+"Herbalism pouch","general","Pouches and small knife for gathering.","2","100",""
+"Alchemist's kit","general","Vials, burner, glassware.","8","800",""
+"Writing kit","general","Ink, quills, wax, small knife.","2","160",""
+"Parchment (sheet)","general","One sheet.","0.05","4",""
+"Book, blank","general","Bound empty book.","3","400",""
+"Book, printed or copied","general","Common treatise.","3","600",""
+"Lantern, hooded","general","Shuttered oil lantern.","2","160",""
+"Lantern, bullseye","general","Directed beam.","3","240",""
+"Torch","general","Resin torch, about 1 hour.","1","1",""
+"Lamp, clay","general","Simple oil lamp.","1","6",""
+"Oil flask","general","1 pint lamp oil, about 6 hours.","1","2",""
+"Candles (10)","general","Tallow candles.","1","2",""
+"Tinderbox","general","Flint, steel, and tinder.","0.5","10",""
+"Bedroll","general","Blanket and ground cloth.","5","20",""
+"Blanket, winter","general","Heavy wool.","4","40",""
+"Tent, one-man","general","Oilcloth shelter.","10","160",""
+"Tent, four-man","general","Larger camp tent.","30","500",""
+"Mess kit","general","Cup, plate, and spoon.","1","16",""
+"Cookpot","general","Iron pot.","8","60",""
+"Rations, poor (1 day)","general","Hard bread and dried beans.","1","2",""
+"Rations, trail (1 day)","general","Dried meat, hardtack, dried fruit.","2","10",""
+"Rations, fine (1 day)","general","Cheese, sausage, decent bread.","2","30",""
+"Feed, horse (1 day)","general","Grain and hay portion.","10","2",""
+"Ale, pint","general","Common tap ale.","1","1",""
+"Wine, cheap bottle","general","Rough table wine.","2","4",""
+"Wine, good bottle","general","Decent vintage.","2","40",""
+"Spirits, flask","general","Strong drink.","1","20",""
+"Lodging, common (night)","general","Shared room or pallet.","0","6",""
+"Lodging, private (night)","general","Own room at an inn.","0","20",""
+"Lodging, fine (night)","general","Good inn, bath and meal.","0","100",""
+"Meal, poor","general","Stew and bread.","0","1",""
+"Meal, common","general","Meat, bread, ale.","0","4",""
+"Meal, fine","general","Roast and wine.","0","20",""
+"Clothes, poor","general","Worn shirt, hose, wrap.","3","10",""
+"Clothes, common","general","Shirt, breeches, cloak, shoes.","4","40",""
+"Clothes, travel","general","Boots, cloak, sturdy coat.","6","100",""
+"Clothes, fine","general","Dyed cloth and trim.","4","400",""
+"Clothes, noble court","general","Silk or velvet display.","5","1600",""
+"Cloak, wool","general","Weather cloak.","3","40",""
+"Cloak, winter","general","Fur-lined.","6","160",""
+"Boots, common","general","Leather boots.","2","40",""
+"Boots, riding","general","Tall boots.","3","100",""
+"Gloves","general","Work or riding gloves.","0.3","20",""
+"Belt","general","Leather belt.","0.3","6",""
+"Holy symbol, wood","general","Carved token.","0.2","20",""
+"Holy symbol, silver","general","Worked silver.","0.3","300",""
+"Spell component pouch","general","Small pouches and vials.","2","100",""
+"Focus, wooden wand","general","Simple magical focus.","0.5","160",""
+"Focus, crystal","general","Cut crystal focus.","0.5","800",""
+"Mirror, steel","general","Polished plate.","0.5","100",""
+"Mirror, silvered","general","True glass mirror.","1","400",""
+"Spyglass","general","Short brass scope.","1","1600",""
+"Hourglass","general","Minute or hour glass.","1","300",""
+"Scale, merchant","general","Balance and weights.","3","160",""
+"Abacus","general","Counting frame.","2","40",""
+"Musical instrument, common","general","Flute, drum, or cheap lute.","2","160",""
+"Musical instrument, fine","general","Well-made lute or harp.","5","800",""
+"Signal whistle","general","Piercing whistle.","0.1","4",""
+"Hunting horn","general","Carrying horn.","2","100",""
+"Fishing tackle","general","Line, hooks, corks.","2","20",""
+"Net, fishing","general","Weighted net.","8","60",""
+"Soap","general","Bar of soap.","0.5","2",""
+"Perfume, vial","general","Scented oil.","0.2","100",""
+"Sealing wax","general","Stick of wax.","0.2","10",""
+"Signet ring","general","Personal seal.","0.1","100",""
+"Map, local","general","County or city map.","0.1","160",""
+"Map, regional","general","Realm map, uneven quality.","0.1","400",""
+"Compass","general","Magnetic needle.","0.3","500",""
+"Saddle, riding","general","Common riding saddle.","20","300",""
+"Saddle, war","general","High-cantle war saddle.","30","800",""
+"Saddlebags","general","Pair of bags.","8","80",""
+"Bit and bridle","general","Horse tack.","2","40",""
+"Donkey","general","Pack beast.","0","240",""
+"Mule","general","Sturdy pack and riding beast.","0","400",""
+"Riding horse","general","Common hack.","0","1500",""
+"Draft horse","general","Wagon horse.","0","1000",""
+"Warhorse","general","Trained destrier.","0","8000",""
+"Pony","general","Small mount.","0","600",""
+"Cart","general","Two-wheel cart.","200","300",""
+"Wagon","general","Four-wheel wagon.","400","800",""
+"Carriage","general","Passenger coach.","600","4000",""
+"Rowboat","general","Small boat.","120","1000",""
+"Keelboat","general","River boat.","0","15000",""
+"Sailing ship, small","general","Coast trader.","0","60000",""
+"Chest, wooden","general","Lockable chest.","25","100",""
+"Chest, iron-bound","general","Strong chest.","50","400",""
+"Barrel","general","Cask, empty.","30","40",""
+"Crate","general","Nail-built box.","15","20",""
+"Ladder (10 ft)","general","Wooden ladder.","20","20",""
+"Pole (10 ft)","general","Ash pole.","8","2",""
+"Ink (vial)","general","Black ink.","0.1","160",""
+"Chalk (10)","general","Marking sticks.","0.2","2",""
+"Paint, pot","general","Small pigment pot.","1","40",""
+"Spy-glass case","general","Leather tube.","0.5","40",""
+"Tent stake set","general","Wood or iron stakes.","3","6",""
+"Whetstone","general","Sharpening stone.","1","4",""
+"Needle and thread","general","Repair kit.","0.1","4",""
+"Winter blanket roll","general","Bedroll plus extra wool.","9","60",""
+"Rain cloak, oiled","general","Waxed canvas cloak.","4","80",""
+"Snowshoes","general","Pair.","4","100",""
+"Skis","general","Pair and pole.","12","160",""
+"Torch, storm","general","Pitch torch that takes weather better.","1.5","4",""
+"Holy water (flask)","general","Blessed water.","1","300",""
+"Acid (vial)","general","Strong acid.","1","200",""
+"Antitoxin (vial)","general","Mundane anti-venom.","0.2","400",""
+"Healing draught","general","Common stimulant tonic, not a miracle.","0.3","300",""
+"Poison, simple (vial)","general","Restricted in most towns.","0.2","1000",""
+"Banner","general","House or company cloth.","3","160",""
+"Tent, pavilion","general","Lord's camp tent.","80","2400",""
+"Portable altar","general","Small traveling shrine.","8","500",""
+"Scabbard","general","Fitted sheath.","1","40",""
+"Weapon oil","general","Protective oil.","0.3","10",""
+"Armor repair kit","general","Rings, leather, rivets.","4","160",""`;
+
+const DYSTOPIAN_EQ_CSV = `"Item","Type","Description","weight(lbs)","cost($)","TL"
+"Dagger","weapons","Short blade for close work and throwing.","1","40",""
+"Knife","weapons","Camp and kitchen knife, poor as a weapon.","0.5","10",""
+"Shortsword","weapons","One-handed blade for tight halls.","3","160",""
+"Sword Arming","weapons","Standard one-handed knight's sword.","4","300",""
+"Sword Long","weapons","Hand-and-a-half blade.","5","500",""
+"Sword Great","weapons","Two-handed cutting sword.","8","800",""
+"Hand axe","weapons","One-handed axe; also splits kindling.","3","100",""
+"Battleaxe","weapons","Heavy one- or two-handed war axe.","6","240",""
+"Greataxe","weapons","Two-handed executioner's axe.","10","500",""
+"Mace","weapons","Flanged crushing head.","5","160",""
+"WarHammer","weapons","Pick and face for mail and plate.","5","240",""
+"Maul","weapons","Two-handed hammer.","12","300",""
+"Spear Short","weapons","Thrusting shaft, 6–7 feet.","6","80",""
+"Pike","weapons","Long formation spear, awkward indoors.","12","160",""
+"Halberd","weapons","Axe-blade, hook, and point on a pole.","12","300",""
+"Quarterstaff","weapons","Hardwood staff.","4","4",""
+"Club","weapons","Simple bludgeon.","3","2",""
+"Morning Star","weapons","Spiked striking head.","6","240",""
+"Flail","weapons","Hinged striking head; ignores some shields in close.","6","200",""
+"Rapier","weapons","Thrusting civilian blade.","2","400",""
+"Scimitar","weapons","Curved slashing blade.","3","360",""
+"Hand crossbow","weapons","One-handed light crossbow.","3","600",""
+"Light Crossbow","weapons","Standard spanned bow.","6","400",""
+"Heavy Crossbow","weapons","Slow, hard-hitting spanned bow.","12","800",""
+"Short Bow","weapons","Hunting bow.","2","240",""
+"Longbow","weapons","War bow; needs room to draw.","3","600",""
+"Sling","weapons","Leather pouch and cords.","0.2","2",""
+"Javelin thrown","weapons","Light throwing spear.","2","20",""
+"Axe Thrown","weapons","Balanced hatchet.","2","60",""
+"Arrows (20)","weapons","Sheaf for bows.","2","20",""
+"Quarrels (20)","weapons","Bolts for crossbows.","2","30",""
+"Sling bullets (20)","weapons","Lead or baked clay.","2","4",""
+"Blowgun","weapons","Tube and darts sold separate.","1","80",""
+"Darts (20)","weapons","Blowgun or throwing darts.","1","20",""
+"Whip","weapons","Long lash.","2","40",""
+"Man-catcher","weapons","Forked capture pole.","8","240",""
+"Fighting Net","weapons","Entangling net.","6","100",""
+"Caltrops (bag)","weapons","Enough to cover 5 feet.","2","20",""
+"BrassKnuckles","weapons","Metal knuckledusters worn over the fist.","0.5","40",""
+"Cudgel","weapons","Stout wooden club, quick and dirty.","2","10",""
+"Sword Stabbing","weapons","Narrow blade built for the thrust.","2","300",""
+"Sword Willow-leaf","weapons","Elven sword with a tapered leaf-shaped blade.","3","440",""
+"Sword Broad","weapons","Wide double-edged blade for heavy cuts.","5","440",""
+"Sword Foil","weapons","Light thrusting blade for quick, precise strikes.","2","360",""
+"Sword Sabre","weapons","Curved cavalry blade, quick in the cut.","3","400",""
+"Sword Katana","weapons","Curved single-edged blade, prized for its keen edge.","3","700",""
+"Hammer","weapons","One-handed dwarven war hammer.","4","200",""
+"SpikeHammer","weapons","Hammer fitted with a piercing spike.","5","280",""
+"Nordic/Norman Axe","weapons","One-handed axe favored by northern raiders.","4","240",""
+"WarAxe","weapons","Heavy two-handed dwarven battle axe.","8","400",""
+"Lance","weapons","Long cavalry lance for mounted combat.","10","360",""
+"Lance(charge)","weapons","Long cavalry lance, deadliest at a charge.","10","400",""
+"Sling Staff","weapons","Staff-sling for hurling stones with greater force.","3","160",""
+"Composite Bow","weapons","Layered bow with extra draw power.","2","800",""
+"Dagger Thrown","weapons","Balanced dagger meant for throwing.","1","40",""
+"Club Thrown","weapons","Weighted club balanced for throwing.","2","40",""
+"Rock Thrown","weapons","Fist-sized stone, good for throwing.","1","1",""
+"Padded jack","armor","Quilted cloth armor.","8","100","3"
+"Leather jerkin","armor","Boiled or layered leather.","10","200","3"
+"Studded leather","armor","Leather with metal rivets.","15","500","3"
+"Hide armor","armor","Thick hides and pelts.","20","240","3"
+"Mail shirt","armor","Torso mail.","25","1200","3"
+"Mail hauberk","armor","Mail to the knee, with sleeves.","40","2000","3"
+"Scale shirt","armor","Overlapping metal scales.","30","1600","3"
+"Breastplate","armor","Solid chest and back.","20","4000","3"
+"Half plate","armor","Breast, greaves, and vambraces.","40","7000","3"
+"Full plate","armor","Complete articulated harness.","55","15000","3"
+"Helmet, cap","armor","Simple steel cap.","3","160","3"
+"Helmet, open","armor","Nasal or kettle helm.","5","300","3"
+"Helmet, closed","armor","Visored helm.","8","800","3"
+"Shield, buckler","armor","Small fist shield.","3","100","3"
+"Shield, round","armor","Common wooden shield with boss.","6","160","3"
+"Shield, kite","armor","Tall cavalry or foot shield.","10","240","3"
+"Shield, tower","armor","Full-height pavise.","18","400","3"
+"Barding, leather","armor","Horse leather armor.","40","800","3"
+"Barding, mail","armor","Horse mail.","70","4000","3"
+"Barding, plate","armor","Horse plate.","90","10000","3"
+"Backpack","general","Leather pack, about 40 lb capacity.","2","40",""
+"Sack","general","Burlap or canvas bag.","0.5","2",""
+"Belt pouch","general","Small pouch for coin and flint.","0.2","6",""
+"Waterskin (1 gal)","general","Filled skin; weight is full.","8","20",""
+"Wineskin (1 gal)","general","As waterskin, for drink.","8","20",""
+"Flask, metal","general","Pint flask.","1","40",""
+"Vial, glass","general","Small stopper vial.","0.1","20",""
+"Crowbar","general","Iron bar for prying.","5","40",""
+"Hammer","general","Camp and nail hammer.","2","20",""
+"Sledge","general","Heavy driving hammer.","10","60",""
+"Pick, miner's","general","Breaking stone and packed earth.","8","80",""
+"Shovel","general","Digging spade.","6","40",""
+"Hand saw","general","Wood saw.","2","40",""
+"Woodcutter's axe","general","Felling axe, not balanced for war.","6","60",""
+"Block and tackle","general","Rope pulley for heavy lifts.","5","160",""
+"Chain (10 ft)","general","Iron links.","10","160",""
+"Rope, hemp (50 ft)","general","Common rope.","10","20",""
+"Rope, silk (50 ft)","general","Lighter, stronger line.","5","200",""
+"Grappling hook","general","Three-prong hook.","4","40",""
+"Pitons (10)","general","Iron spikes for climbing.","5","40",""
+"Manacles","general","Wrist irons and short chain.","2","160",""
+"Lock, simple","general","Cheap padlock.","0.5","160",""
+"Lock, good","general","Better wards.","1","400",""
+"Lock, fine","general","Hard to pick.","1","1000",""
+"Thieves' tools","general","Picks, shims, small saw, files.","1","500",""
+"Artisan tools (set)","general","One trade: smith, carpenter, tailor, etc.","8","400",""
+"Healer's kit","general","Bandages, needle, salves for 10 uses.","3","160",""
+"Herbalism pouch","general","Pouches and small knife for gathering.","2","100",""
+"Alchemist's kit","general","Vials, burner, glassware.","8","800",""
+"Writing kit","general","Ink, quills, wax, small knife.","2","160",""
+"Parchment (sheet)","general","One sheet.","0.05","4",""
+"Book, blank","general","Bound empty book.","3","400",""
+"Book, printed or copied","general","Common treatise.","3","600",""
+"Lantern, hooded","general","Shuttered oil lantern.","2","160",""
+"Lantern, bullseye","general","Directed beam.","3","240",""
+"Torch","general","Resin torch, about 1 hour.","1","1",""
+"Lamp, clay","general","Simple oil lamp.","1","6",""
+"Oil flask","general","1 pint lamp oil, about 6 hours.","1","2",""
+"Candles (10)","general","Tallow candles.","1","2",""
+"Tinderbox","general","Flint, steel, and tinder.","0.5","10",""
+"Bedroll","general","Blanket and ground cloth.","5","20",""
+"Blanket, winter","general","Heavy wool.","4","40",""
+"Tent, one-man","general","Oilcloth shelter.","10","160",""
+"Tent, four-man","general","Larger camp tent.","30","500",""
+"Mess kit","general","Cup, plate, and spoon.","1","16",""
+"Cookpot","general","Iron pot.","8","60",""
+"Rations, poor (1 day)","general","Hard bread and dried beans.","1","2",""
+"Rations, trail (1 day)","general","Dried meat, hardtack, dried fruit.","2","10",""
+"Rations, fine (1 day)","general","Cheese, sausage, decent bread.","2","30",""
+"Feed, horse (1 day)","general","Grain and hay portion.","10","2",""
+"Ale, pint","general","Common tap ale.","1","1",""
+"Wine, cheap bottle","general","Rough table wine.","2","4",""
+"Wine, good bottle","general","Decent vintage.","2","40",""
+"Spirits, flask","general","Strong drink.","1","20",""
+"Lodging, common (night)","general","Shared room or pallet.","0","6",""
+"Lodging, private (night)","general","Own room at an inn.","0","20",""
+"Lodging, fine (night)","general","Good inn, bath and meal.","0","100",""
+"Meal, poor","general","Stew and bread.","0","1",""
+"Meal, common","general","Meat, bread, ale.","0","4",""
+"Meal, fine","general","Roast and wine.","0","20",""
+"Clothes, poor","general","Worn shirt, hose, wrap.","3","10",""
+"Clothes, common","general","Shirt, breeches, cloak, shoes.","4","40",""
+"Clothes, travel","general","Boots, cloak, sturdy coat.","6","100",""
+"Clothes, fine","general","Dyed cloth and trim.","4","400",""
+"Clothes, noble court","general","Silk or velvet display.","5","1600",""
+"Cloak, wool","general","Weather cloak.","3","40",""
+"Cloak, winter","general","Fur-lined.","6","160",""
+"Boots, common","general","Leather boots.","2","40",""
+"Boots, riding","general","Tall boots.","3","100",""
+"Gloves","general","Work or riding gloves.","0.3","20",""
+"Belt","general","Leather belt.","0.3","6",""
+"Holy symbol, wood","general","Carved token.","0.2","20",""
+"Holy symbol, silver","general","Worked silver.","0.3","300",""
+"Spell component pouch","general","Small pouches and vials.","2","100",""
+"Focus, wooden wand","general","Simple magical focus.","0.5","160",""
+"Focus, crystal","general","Cut crystal focus.","0.5","800",""
+"Mirror, steel","general","Polished plate.","0.5","100",""
+"Mirror, silvered","general","True glass mirror.","1","400",""
+"Spyglass","general","Short brass scope.","1","1600",""
+"Hourglass","general","Minute or hour glass.","1","300",""
+"Scale, merchant","general","Balance and weights.","3","160",""
+"Abacus","general","Counting frame.","2","40",""
+"Musical instrument, common","general","Flute, drum, or cheap lute.","2","160",""
+"Musical instrument, fine","general","Well-made lute or harp.","5","800",""
+"Signal whistle","general","Piercing whistle.","0.1","4",""
+"Hunting horn","general","Carrying horn.","2","100",""
+"Fishing tackle","general","Line, hooks, corks.","2","20",""
+"Net, fishing","general","Weighted net.","8","60",""
+"Soap","general","Bar of soap.","0.5","2",""
+"Perfume, vial","general","Scented oil.","0.2","100",""
+"Sealing wax","general","Stick of wax.","0.2","10",""
+"Signet ring","general","Personal seal.","0.1","100",""
+"Map, local","general","County or city map.","0.1","160",""
+"Map, regional","general","Realm map, uneven quality.","0.1","400",""
+"Compass","general","Magnetic needle.","0.3","500",""
+"Saddle, riding","general","Common riding saddle.","20","300",""
+"Saddle, war","general","High-cantle war saddle.","30","800",""
+"Saddlebags","general","Pair of bags.","8","80",""
+"Bit and bridle","general","Horse tack.","2","40",""
+"Donkey","general","Pack beast.","0","240",""
+"Mule","general","Sturdy pack and riding beast.","0","400",""
+"Riding horse","general","Common hack.","0","1500",""
+"Draft horse","general","Wagon horse.","0","1000",""
+"Warhorse","general","Trained destrier.","0","8000",""
+"Pony","general","Small mount.","0","600",""
+"Cart","general","Two-wheel cart.","200","300",""
+"Wagon","general","Four-wheel wagon.","400","800",""
+"Carriage","general","Passenger coach.","600","4000",""
+"Rowboat","general","Small boat.","120","1000",""
+"Keelboat","general","River boat.","0","15000",""
+"Sailing ship, small","general","Coast trader.","0","60000",""
+"Chest, wooden","general","Lockable chest.","25","100",""
+"Chest, iron-bound","general","Strong chest.","50","400",""
+"Barrel","general","Cask, empty.","30","40",""
+"Crate","general","Nail-built box.","15","20",""
+"Ladder (10 ft)","general","Wooden ladder.","20","20",""
+"Pole (10 ft)","general","Ash pole.","8","2",""
+"Ink (vial)","general","Black ink.","0.1","160",""
+"Chalk (10)","general","Marking sticks.","0.2","2",""
+"Paint, pot","general","Small pigment pot.","1","40",""
+"Spy-glass case","general","Leather tube.","0.5","40",""
+"Tent stake set","general","Wood or iron stakes.","3","6",""
+"Whetstone","general","Sharpening stone.","1","4",""
+"Needle and thread","general","Repair kit.","0.1","4",""
+"Winter blanket roll","general","Bedroll plus extra wool.","9","60",""
+"Rain cloak, oiled","general","Waxed canvas cloak.","4","80",""
+"Snowshoes","general","Pair.","4","100",""
+"Skis","general","Pair and pole.","12","160",""
+"Torch, storm","general","Pitch torch that takes weather better.","1.5","4",""
+"Holy water (flask)","general","Blessed water.","1","300",""
+"Acid (vial)","general","Strong acid.","1","200",""
+"Antitoxin (vial)","general","Mundane anti-venom.","0.2","400",""
+"Healing draught","general","Common stimulant tonic, not a miracle.","0.3","300",""
+"Poison, simple (vial)","general","Restricted in most towns.","0.2","1000",""
+"Banner","general","House or company cloth.","3","160",""
+"Tent, pavilion","general","Lord's camp tent.","80","2400",""
+"Portable altar","general","Small traveling shrine.","8","500",""
+"Scabbard","general","Fitted sheath.","1","40",""
+"Weapon oil","general","Protective oil.","0.3","10",""
+"Armor repair kit","general","Rings, leather, rivets.","4","160",""`;
+
+const SCIFI_EQ_CSV = `"Item","Type","Description","weight(lbs)","cost($)","TL"
+"Dagger","weapons","Short blade for close work and throwing.","1","40",""
+"Knife","weapons","Camp and kitchen knife, poor as a weapon.","0.5","10",""
+"Shortsword","weapons","One-handed blade for tight halls.","3","160",""
+"Sword Arming","weapons","Standard one-handed knight's sword.","4","300",""
+"Sword Long","weapons","Hand-and-a-half blade.","5","500",""
+"Sword Great","weapons","Two-handed cutting sword.","8","800",""
+"Hand axe","weapons","One-handed axe; also splits kindling.","3","100",""
+"Battleaxe","weapons","Heavy one- or two-handed war axe.","6","240",""
+"Greataxe","weapons","Two-handed executioner's axe.","10","500",""
+"Mace","weapons","Flanged crushing head.","5","160",""
+"WarHammer","weapons","Pick and face for mail and plate.","5","240",""
+"Maul","weapons","Two-handed hammer.","12","300",""
+"Spear Short","weapons","Thrusting shaft, 6–7 feet.","6","80",""
+"Pike","weapons","Long formation spear, awkward indoors.","12","160",""
+"Halberd","weapons","Axe-blade, hook, and point on a pole.","12","300",""
+"Quarterstaff","weapons","Hardwood staff.","4","4",""
+"Club","weapons","Simple bludgeon.","3","2",""
+"Morning Star","weapons","Spiked striking head.","6","240",""
+"Flail","weapons","Hinged striking head; ignores some shields in close.","6","200",""
+"Rapier","weapons","Thrusting civilian blade.","2","400",""
+"Scimitar","weapons","Curved slashing blade.","3","360",""
+"Hand crossbow","weapons","One-handed light crossbow.","3","600",""
+"Light Crossbow","weapons","Standard spanned bow.","6","400",""
+"Heavy Crossbow","weapons","Slow, hard-hitting spanned bow.","12","800",""
+"Short Bow","weapons","Hunting bow.","2","240",""
+"Longbow","weapons","War bow; needs room to draw.","3","600",""
+"Sling","weapons","Leather pouch and cords.","0.2","2",""
+"Javelin thrown","weapons","Light throwing spear.","2","20",""
+"Axe Thrown","weapons","Balanced hatchet.","2","60",""
+"Arrows (20)","weapons","Sheaf for bows.","2","20",""
+"Quarrels (20)","weapons","Bolts for crossbows.","2","30",""
+"Sling bullets (20)","weapons","Lead or baked clay.","2","4",""
+"Blowgun","weapons","Tube and darts sold separate.","1","80",""
+"Darts (20)","weapons","Blowgun or throwing darts.","1","20",""
+"Whip","weapons","Long lash.","2","40",""
+"Man-catcher","weapons","Forked capture pole.","8","240",""
+"Fighting Net","weapons","Entangling net.","6","100",""
+"Caltrops (bag)","weapons","Enough to cover 5 feet.","2","20",""
+"BrassKnuckles","weapons","Metal knuckledusters worn over the fist.","0.5","40",""
+"Cudgel","weapons","Stout wooden club, quick and dirty.","2","10",""
+"Sword Stabbing","weapons","Narrow blade built for the thrust.","2","300",""
+"Sword Willow-leaf","weapons","Elven sword with a tapered leaf-shaped blade.","3","440",""
+"Sword Broad","weapons","Wide double-edged blade for heavy cuts.","5","440",""
+"Sword Foil","weapons","Light thrusting blade for quick, precise strikes.","2","360",""
+"Sword Sabre","weapons","Curved cavalry blade, quick in the cut.","3","400",""
+"Sword Katana","weapons","Curved single-edged blade, prized for its keen edge.","3","700",""
+"Hammer","weapons","One-handed dwarven war hammer.","4","200",""
+"SpikeHammer","weapons","Hammer fitted with a piercing spike.","5","280",""
+"Nordic/Norman Axe","weapons","One-handed axe favored by northern raiders.","4","240",""
+"WarAxe","weapons","Heavy two-handed dwarven battle axe.","8","400",""
+"Lance","weapons","Long cavalry lance for mounted combat.","10","360",""
+"Lance(charge)","weapons","Long cavalry lance, deadliest at a charge.","10","400",""
+"Sling Staff","weapons","Staff-sling for hurling stones with greater force.","3","160",""
+"Composite Bow","weapons","Layered bow with extra draw power.","2","800",""
+"Dagger Thrown","weapons","Balanced dagger meant for throwing.","1","40",""
+"Club Thrown","weapons","Weighted club balanced for throwing.","2","40",""
+"Rock Thrown","weapons","Fist-sized stone, good for throwing.","1","1",""
+"Padded jack","armor","Quilted cloth armor.","8","100","3"
+"Leather jerkin","armor","Boiled or layered leather.","10","200","3"
+"Studded leather","armor","Leather with metal rivets.","15","500","3"
+"Hide armor","armor","Thick hides and pelts.","20","240","3"
+"Mail shirt","armor","Torso mail.","25","1200","3"
+"Mail hauberk","armor","Mail to the knee, with sleeves.","40","2000","3"
+"Scale shirt","armor","Overlapping metal scales.","30","1600","3"
+"Breastplate","armor","Solid chest and back.","20","4000","3"
+"Half plate","armor","Breast, greaves, and vambraces.","40","7000","3"
+"Full plate","armor","Complete articulated harness.","55","15000","3"
+"Helmet, cap","armor","Simple steel cap.","3","160","3"
+"Helmet, open","armor","Nasal or kettle helm.","5","300","3"
+"Helmet, closed","armor","Visored helm.","8","800","3"
+"Shield, buckler","armor","Small fist shield.","3","100","3"
+"Shield, round","armor","Common wooden shield with boss.","6","160","3"
+"Shield, kite","armor","Tall cavalry or foot shield.","10","240","3"
+"Shield, tower","armor","Full-height pavise.","18","400","3"
+"Barding, leather","armor","Horse leather armor.","40","800","3"
+"Barding, mail","armor","Horse mail.","70","4000","3"
+"Barding, plate","armor","Horse plate.","90","10000","3"
+"Backpack","general","Leather pack, about 40 lb capacity.","2","40",""
+"Sack","general","Burlap or canvas bag.","0.5","2",""
+"Belt pouch","general","Small pouch for coin and flint.","0.2","6",""
+"Waterskin (1 gal)","general","Filled skin; weight is full.","8","20",""
+"Wineskin (1 gal)","general","As waterskin, for drink.","8","20",""
+"Flask, metal","general","Pint flask.","1","40",""
+"Vial, glass","general","Small stopper vial.","0.1","20",""
+"Crowbar","general","Iron bar for prying.","5","40",""
+"Hammer","general","Camp and nail hammer.","2","20",""
+"Sledge","general","Heavy driving hammer.","10","60",""
+"Pick, miner's","general","Breaking stone and packed earth.","8","80",""
+"Shovel","general","Digging spade.","6","40",""
+"Hand saw","general","Wood saw.","2","40",""
+"Woodcutter's axe","general","Felling axe, not balanced for war.","6","60",""
+"Block and tackle","general","Rope pulley for heavy lifts.","5","160",""
+"Chain (10 ft)","general","Iron links.","10","160",""
+"Rope, hemp (50 ft)","general","Common rope.","10","20",""
+"Rope, silk (50 ft)","general","Lighter, stronger line.","5","200",""
+"Grappling hook","general","Three-prong hook.","4","40",""
+"Pitons (10)","general","Iron spikes for climbing.","5","40",""
+"Manacles","general","Wrist irons and short chain.","2","160",""
+"Lock, simple","general","Cheap padlock.","0.5","160",""
+"Lock, good","general","Better wards.","1","400",""
+"Lock, fine","general","Hard to pick.","1","1000",""
+"Thieves' tools","general","Picks, shims, small saw, files.","1","500",""
+"Artisan tools (set)","general","One trade: smith, carpenter, tailor, etc.","8","400",""
+"Healer's kit","general","Bandages, needle, salves for 10 uses.","3","160",""
+"Herbalism pouch","general","Pouches and small knife for gathering.","2","100",""
+"Alchemist's kit","general","Vials, burner, glassware.","8","800",""
+"Writing kit","general","Ink, quills, wax, small knife.","2","160",""
+"Parchment (sheet)","general","One sheet.","0.05","4",""
+"Book, blank","general","Bound empty book.","3","400",""
+"Book, printed or copied","general","Common treatise.","3","600",""
+"Lantern, hooded","general","Shuttered oil lantern.","2","160",""
+"Lantern, bullseye","general","Directed beam.","3","240",""
+"Torch","general","Resin torch, about 1 hour.","1","1",""
+"Lamp, clay","general","Simple oil lamp.","1","6",""
+"Oil flask","general","1 pint lamp oil, about 6 hours.","1","2",""
+"Candles (10)","general","Tallow candles.","1","2",""
+"Tinderbox","general","Flint, steel, and tinder.","0.5","10",""
+"Bedroll","general","Blanket and ground cloth.","5","20",""
+"Blanket, winter","general","Heavy wool.","4","40",""
+"Tent, one-man","general","Oilcloth shelter.","10","160",""
+"Tent, four-man","general","Larger camp tent.","30","500",""
+"Mess kit","general","Cup, plate, and spoon.","1","16",""
+"Cookpot","general","Iron pot.","8","60",""
+"Rations, poor (1 day)","general","Hard bread and dried beans.","1","2",""
+"Rations, trail (1 day)","general","Dried meat, hardtack, dried fruit.","2","10",""
+"Rations, fine (1 day)","general","Cheese, sausage, decent bread.","2","30",""
+"Feed, horse (1 day)","general","Grain and hay portion.","10","2",""
+"Ale, pint","general","Common tap ale.","1","1",""
+"Wine, cheap bottle","general","Rough table wine.","2","4",""
+"Wine, good bottle","general","Decent vintage.","2","40",""
+"Spirits, flask","general","Strong drink.","1","20",""
+"Lodging, common (night)","general","Shared room or pallet.","0","6",""
+"Lodging, private (night)","general","Own room at an inn.","0","20",""
+"Lodging, fine (night)","general","Good inn, bath and meal.","0","100",""
+"Meal, poor","general","Stew and bread.","0","1",""
+"Meal, common","general","Meat, bread, ale.","0","4",""
+"Meal, fine","general","Roast and wine.","0","20",""
+"Clothes, poor","general","Worn shirt, hose, wrap.","3","10",""
+"Clothes, common","general","Shirt, breeches, cloak, shoes.","4","40",""
+"Clothes, travel","general","Boots, cloak, sturdy coat.","6","100",""
+"Clothes, fine","general","Dyed cloth and trim.","4","400",""
+"Clothes, noble court","general","Silk or velvet display.","5","1600",""
+"Cloak, wool","general","Weather cloak.","3","40",""
+"Cloak, winter","general","Fur-lined.","6","160",""
+"Boots, common","general","Leather boots.","2","40",""
+"Boots, riding","general","Tall boots.","3","100",""
+"Gloves","general","Work or riding gloves.","0.3","20",""
+"Belt","general","Leather belt.","0.3","6",""
+"Holy symbol, wood","general","Carved token.","0.2","20",""
+"Holy symbol, silver","general","Worked silver.","0.3","300",""
+"Spell component pouch","general","Small pouches and vials.","2","100",""
+"Focus, wooden wand","general","Simple magical focus.","0.5","160",""
+"Focus, crystal","general","Cut crystal focus.","0.5","800",""
+"Mirror, steel","general","Polished plate.","0.5","100",""
+"Mirror, silvered","general","True glass mirror.","1","400",""
+"Spyglass","general","Short brass scope.","1","1600",""
+"Hourglass","general","Minute or hour glass.","1","300",""
+"Scale, merchant","general","Balance and weights.","3","160",""
+"Abacus","general","Counting frame.","2","40",""
+"Musical instrument, common","general","Flute, drum, or cheap lute.","2","160",""
+"Musical instrument, fine","general","Well-made lute or harp.","5","800",""
+"Signal whistle","general","Piercing whistle.","0.1","4",""
+"Hunting horn","general","Carrying horn.","2","100",""
+"Fishing tackle","general","Line, hooks, corks.","2","20",""
+"Net, fishing","general","Weighted net.","8","60",""
+"Soap","general","Bar of soap.","0.5","2",""
+"Perfume, vial","general","Scented oil.","0.2","100",""
+"Sealing wax","general","Stick of wax.","0.2","10",""
+"Signet ring","general","Personal seal.","0.1","100",""
+"Map, local","general","County or city map.","0.1","160",""
+"Map, regional","general","Realm map, uneven quality.","0.1","400",""
+"Compass","general","Magnetic needle.","0.3","500",""
+"Saddle, riding","general","Common riding saddle.","20","300",""
+"Saddle, war","general","High-cantle war saddle.","30","800",""
+"Saddlebags","general","Pair of bags.","8","80",""
+"Bit and bridle","general","Horse tack.","2","40",""
+"Donkey","general","Pack beast.","0","240",""
+"Mule","general","Sturdy pack and riding beast.","0","400",""
+"Riding horse","general","Common hack.","0","1500",""
+"Draft horse","general","Wagon horse.","0","1000",""
+"Warhorse","general","Trained destrier.","0","8000",""
+"Pony","general","Small mount.","0","600",""
+"Cart","general","Two-wheel cart.","200","300",""
+"Wagon","general","Four-wheel wagon.","400","800",""
+"Carriage","general","Passenger coach.","600","4000",""
+"Rowboat","general","Small boat.","120","1000",""
+"Keelboat","general","River boat.","0","15000",""
+"Sailing ship, small","general","Coast trader.","0","60000",""
+"Chest, wooden","general","Lockable chest.","25","100",""
+"Chest, iron-bound","general","Strong chest.","50","400",""
+"Barrel","general","Cask, empty.","30","40",""
+"Crate","general","Nail-built box.","15","20",""
+"Ladder (10 ft)","general","Wooden ladder.","20","20",""
+"Pole (10 ft)","general","Ash pole.","8","2",""
+"Ink (vial)","general","Black ink.","0.1","160",""
+"Chalk (10)","general","Marking sticks.","0.2","2",""
+"Paint, pot","general","Small pigment pot.","1","40",""
+"Spy-glass case","general","Leather tube.","0.5","40",""
+"Tent stake set","general","Wood or iron stakes.","3","6",""
+"Whetstone","general","Sharpening stone.","1","4",""
+"Needle and thread","general","Repair kit.","0.1","4",""
+"Winter blanket roll","general","Bedroll plus extra wool.","9","60",""
+"Rain cloak, oiled","general","Waxed canvas cloak.","4","80",""
+"Snowshoes","general","Pair.","4","100",""
+"Skis","general","Pair and pole.","12","160",""
+"Torch, storm","general","Pitch torch that takes weather better.","1.5","4",""
+"Holy water (flask)","general","Blessed water.","1","300",""
+"Acid (vial)","general","Strong acid.","1","200",""
+"Antitoxin (vial)","general","Mundane anti-venom.","0.2","400",""
+"Healing draught","general","Common stimulant tonic, not a miracle.","0.3","300",""
+"Poison, simple (vial)","general","Restricted in most towns.","0.2","1000",""
+"Banner","general","House or company cloth.","3","160",""
+"Tent, pavilion","general","Lord's camp tent.","80","2400",""
+"Portable altar","general","Small traveling shrine.","8","500",""
+"Scabbard","general","Fitted sheath.","1","40",""
+"Weapon oil","general","Protective oil.","0.3","10",""
+"Armor repair kit","general","Rings, leather, rivets.","4","160",""`;
+
+const APOCALYPTIC_EQ_CSV = `"Item","Type","Description","weight(lbs)","cost($)","TL"
+"Dagger","weapons","Short blade for close work and throwing.","1","40",""
+"Knife","weapons","Camp and kitchen knife, poor as a weapon.","0.5","10",""
+"Shortsword","weapons","One-handed blade for tight halls.","3","160",""
+"Sword Arming","weapons","Standard one-handed knight's sword.","4","300",""
+"Sword Long","weapons","Hand-and-a-half blade.","5","500",""
+"Sword Great","weapons","Two-handed cutting sword.","8","800",""
+"Hand axe","weapons","One-handed axe; also splits kindling.","3","100",""
+"Battleaxe","weapons","Heavy one- or two-handed war axe.","6","240",""
+"Greataxe","weapons","Two-handed executioner's axe.","10","500",""
+"Mace","weapons","Flanged crushing head.","5","160",""
+"WarHammer","weapons","Pick and face for mail and plate.","5","240",""
+"Maul","weapons","Two-handed hammer.","12","300",""
+"Spear Short","weapons","Thrusting shaft, 6–7 feet.","6","80",""
+"Pike","weapons","Long formation spear, awkward indoors.","12","160",""
+"Halberd","weapons","Axe-blade, hook, and point on a pole.","12","300",""
+"Quarterstaff","weapons","Hardwood staff.","4","4",""
+"Club","weapons","Simple bludgeon.","3","2",""
+"Morning Star","weapons","Spiked striking head.","6","240",""
+"Flail","weapons","Hinged striking head; ignores some shields in close.","6","200",""
+"Rapier","weapons","Thrusting civilian blade.","2","400",""
+"Scimitar","weapons","Curved slashing blade.","3","360",""
+"Hand crossbow","weapons","One-handed light crossbow.","3","600",""
+"Light Crossbow","weapons","Standard spanned bow.","6","400",""
+"Heavy Crossbow","weapons","Slow, hard-hitting spanned bow.","12","800",""
+"Short Bow","weapons","Hunting bow.","2","240",""
+"Longbow","weapons","War bow; needs room to draw.","3","600",""
+"Sling","weapons","Leather pouch and cords.","0.2","2",""
+"Javelin thrown","weapons","Light throwing spear.","2","20",""
+"Axe Thrown","weapons","Balanced hatchet.","2","60",""
+"Arrows (20)","weapons","Sheaf for bows.","2","20",""
+"Quarrels (20)","weapons","Bolts for crossbows.","2","30",""
+"Sling bullets (20)","weapons","Lead or baked clay.","2","4",""
+"Blowgun","weapons","Tube and darts sold separate.","1","80",""
+"Darts (20)","weapons","Blowgun or throwing darts.","1","20",""
+"Whip","weapons","Long lash.","2","40",""
+"Man-catcher","weapons","Forked capture pole.","8","240",""
+"Fighting Net","weapons","Entangling net.","6","100",""
+"Caltrops (bag)","weapons","Enough to cover 5 feet.","2","20",""
+"BrassKnuckles","weapons","Metal knuckledusters worn over the fist.","0.5","40",""
+"Cudgel","weapons","Stout wooden club, quick and dirty.","2","10",""
+"Sword Stabbing","weapons","Narrow blade built for the thrust.","2","300",""
+"Sword Willow-leaf","weapons","Elven sword with a tapered leaf-shaped blade.","3","440",""
+"Sword Broad","weapons","Wide double-edged blade for heavy cuts.","5","440",""
+"Sword Foil","weapons","Light thrusting blade for quick, precise strikes.","2","360",""
+"Sword Sabre","weapons","Curved cavalry blade, quick in the cut.","3","400",""
+"Sword Katana","weapons","Curved single-edged blade, prized for its keen edge.","3","700",""
+"Hammer","weapons","One-handed dwarven war hammer.","4","200",""
+"SpikeHammer","weapons","Hammer fitted with a piercing spike.","5","280",""
+"Nordic/Norman Axe","weapons","One-handed axe favored by northern raiders.","4","240",""
+"WarAxe","weapons","Heavy two-handed dwarven battle axe.","8","400",""
+"Lance","weapons","Long cavalry lance for mounted combat.","10","360",""
+"Lance(charge)","weapons","Long cavalry lance, deadliest at a charge.","10","400",""
+"Sling Staff","weapons","Staff-sling for hurling stones with greater force.","3","160",""
+"Composite Bow","weapons","Layered bow with extra draw power.","2","800",""
+"Dagger Thrown","weapons","Balanced dagger meant for throwing.","1","40",""
+"Club Thrown","weapons","Weighted club balanced for throwing.","2","40",""
+"Rock Thrown","weapons","Fist-sized stone, good for throwing.","1","1",""
+"Padded jack","armor","Quilted cloth armor.","8","100","3"
+"Leather jerkin","armor","Boiled or layered leather.","10","200","3"
+"Studded leather","armor","Leather with metal rivets.","15","500","3"
+"Hide armor","armor","Thick hides and pelts.","20","240","3"
+"Mail shirt","armor","Torso mail.","25","1200","3"
+"Mail hauberk","armor","Mail to the knee, with sleeves.","40","2000","3"
+"Scale shirt","armor","Overlapping metal scales.","30","1600","3"
+"Breastplate","armor","Solid chest and back.","20","4000","3"
+"Half plate","armor","Breast, greaves, and vambraces.","40","7000","3"
+"Full plate","armor","Complete articulated harness.","55","15000","3"
+"Helmet, cap","armor","Simple steel cap.","3","160","3"
+"Helmet, open","armor","Nasal or kettle helm.","5","300","3"
+"Helmet, closed","armor","Visored helm.","8","800","3"
+"Shield, buckler","armor","Small fist shield.","3","100","3"
+"Shield, round","armor","Common wooden shield with boss.","6","160","3"
+"Shield, kite","armor","Tall cavalry or foot shield.","10","240","3"
+"Shield, tower","armor","Full-height pavise.","18","400","3"
+"Barding, leather","armor","Horse leather armor.","40","800","3"
+"Barding, mail","armor","Horse mail.","70","4000","3"
+"Barding, plate","armor","Horse plate.","90","10000","3"
+"Backpack","general","Leather pack, about 40 lb capacity.","2","40",""
+"Sack","general","Burlap or canvas bag.","0.5","2",""
+"Belt pouch","general","Small pouch for coin and flint.","0.2","6",""
+"Waterskin (1 gal)","general","Filled skin; weight is full.","8","20",""
+"Wineskin (1 gal)","general","As waterskin, for drink.","8","20",""
+"Flask, metal","general","Pint flask.","1","40",""
+"Vial, glass","general","Small stopper vial.","0.1","20",""
+"Crowbar","general","Iron bar for prying.","5","40",""
+"Hammer","general","Camp and nail hammer.","2","20",""
+"Sledge","general","Heavy driving hammer.","10","60",""
+"Pick, miner's","general","Breaking stone and packed earth.","8","80",""
+"Shovel","general","Digging spade.","6","40",""
+"Hand saw","general","Wood saw.","2","40",""
+"Woodcutter's axe","general","Felling axe, not balanced for war.","6","60",""
+"Block and tackle","general","Rope pulley for heavy lifts.","5","160",""
+"Chain (10 ft)","general","Iron links.","10","160",""
+"Rope, hemp (50 ft)","general","Common rope.","10","20",""
+"Rope, silk (50 ft)","general","Lighter, stronger line.","5","200",""
+"Grappling hook","general","Three-prong hook.","4","40",""
+"Pitons (10)","general","Iron spikes for climbing.","5","40",""
+"Manacles","general","Wrist irons and short chain.","2","160",""
+"Lock, simple","general","Cheap padlock.","0.5","160",""
+"Lock, good","general","Better wards.","1","400",""
+"Lock, fine","general","Hard to pick.","1","1000",""
+"Thieves' tools","general","Picks, shims, small saw, files.","1","500",""
+"Artisan tools (set)","general","One trade: smith, carpenter, tailor, etc.","8","400",""
+"Healer's kit","general","Bandages, needle, salves for 10 uses.","3","160",""
+"Herbalism pouch","general","Pouches and small knife for gathering.","2","100",""
+"Alchemist's kit","general","Vials, burner, glassware.","8","800",""
+"Writing kit","general","Ink, quills, wax, small knife.","2","160",""
+"Parchment (sheet)","general","One sheet.","0.05","4",""
+"Book, blank","general","Bound empty book.","3","400",""
+"Book, printed or copied","general","Common treatise.","3","600",""
+"Lantern, hooded","general","Shuttered oil lantern.","2","160",""
+"Lantern, bullseye","general","Directed beam.","3","240",""
+"Torch","general","Resin torch, about 1 hour.","1","1",""
+"Lamp, clay","general","Simple oil lamp.","1","6",""
+"Oil flask","general","1 pint lamp oil, about 6 hours.","1","2",""
+"Candles (10)","general","Tallow candles.","1","2",""
+"Tinderbox","general","Flint, steel, and tinder.","0.5","10",""
+"Bedroll","general","Blanket and ground cloth.","5","20",""
+"Blanket, winter","general","Heavy wool.","4","40",""
+"Tent, one-man","general","Oilcloth shelter.","10","160",""
+"Tent, four-man","general","Larger camp tent.","30","500",""
+"Mess kit","general","Cup, plate, and spoon.","1","16",""
+"Cookpot","general","Iron pot.","8","60",""
+"Rations, poor (1 day)","general","Hard bread and dried beans.","1","2",""
+"Rations, trail (1 day)","general","Dried meat, hardtack, dried fruit.","2","10",""
+"Rations, fine (1 day)","general","Cheese, sausage, decent bread.","2","30",""
+"Feed, horse (1 day)","general","Grain and hay portion.","10","2",""
+"Ale, pint","general","Common tap ale.","1","1",""
+"Wine, cheap bottle","general","Rough table wine.","2","4",""
+"Wine, good bottle","general","Decent vintage.","2","40",""
+"Spirits, flask","general","Strong drink.","1","20",""
+"Lodging, common (night)","general","Shared room or pallet.","0","6",""
+"Lodging, private (night)","general","Own room at an inn.","0","20",""
+"Lodging, fine (night)","general","Good inn, bath and meal.","0","100",""
+"Meal, poor","general","Stew and bread.","0","1",""
+"Meal, common","general","Meat, bread, ale.","0","4",""
+"Meal, fine","general","Roast and wine.","0","20",""
+"Clothes, poor","general","Worn shirt, hose, wrap.","3","10",""
+"Clothes, common","general","Shirt, breeches, cloak, shoes.","4","40",""
+"Clothes, travel","general","Boots, cloak, sturdy coat.","6","100",""
+"Clothes, fine","general","Dyed cloth and trim.","4","400",""
+"Clothes, noble court","general","Silk or velvet display.","5","1600",""
+"Cloak, wool","general","Weather cloak.","3","40",""
+"Cloak, winter","general","Fur-lined.","6","160",""
+"Boots, common","general","Leather boots.","2","40",""
+"Boots, riding","general","Tall boots.","3","100",""
+"Gloves","general","Work or riding gloves.","0.3","20",""
+"Belt","general","Leather belt.","0.3","6",""
+"Holy symbol, wood","general","Carved token.","0.2","20",""
+"Holy symbol, silver","general","Worked silver.","0.3","300",""
+"Spell component pouch","general","Small pouches and vials.","2","100",""
+"Focus, wooden wand","general","Simple magical focus.","0.5","160",""
+"Focus, crystal","general","Cut crystal focus.","0.5","800",""
+"Mirror, steel","general","Polished plate.","0.5","100",""
+"Mirror, silvered","general","True glass mirror.","1","400",""
+"Spyglass","general","Short brass scope.","1","1600",""
+"Hourglass","general","Minute or hour glass.","1","300",""
+"Scale, merchant","general","Balance and weights.","3","160",""
+"Abacus","general","Counting frame.","2","40",""
+"Musical instrument, common","general","Flute, drum, or cheap lute.","2","160",""
+"Musical instrument, fine","general","Well-made lute or harp.","5","800",""
+"Signal whistle","general","Piercing whistle.","0.1","4",""
+"Hunting horn","general","Carrying horn.","2","100",""
+"Fishing tackle","general","Line, hooks, corks.","2","20",""
+"Net, fishing","general","Weighted net.","8","60",""
+"Soap","general","Bar of soap.","0.5","2",""
+"Perfume, vial","general","Scented oil.","0.2","100",""
+"Sealing wax","general","Stick of wax.","0.2","10",""
+"Signet ring","general","Personal seal.","0.1","100",""
+"Map, local","general","County or city map.","0.1","160",""
+"Map, regional","general","Realm map, uneven quality.","0.1","400",""
+"Compass","general","Magnetic needle.","0.3","500",""
+"Saddle, riding","general","Common riding saddle.","20","300",""
+"Saddle, war","general","High-cantle war saddle.","30","800",""
+"Saddlebags","general","Pair of bags.","8","80",""
+"Bit and bridle","general","Horse tack.","2","40",""
+"Donkey","general","Pack beast.","0","240",""
+"Mule","general","Sturdy pack and riding beast.","0","400",""
+"Riding horse","general","Common hack.","0","1500",""
+"Draft horse","general","Wagon horse.","0","1000",""
+"Warhorse","general","Trained destrier.","0","8000",""
+"Pony","general","Small mount.","0","600",""
+"Cart","general","Two-wheel cart.","200","300",""
+"Wagon","general","Four-wheel wagon.","400","800",""
+"Carriage","general","Passenger coach.","600","4000",""
+"Rowboat","general","Small boat.","120","1000",""
+"Keelboat","general","River boat.","0","15000",""
+"Sailing ship, small","general","Coast trader.","0","60000",""
+"Chest, wooden","general","Lockable chest.","25","100",""
+"Chest, iron-bound","general","Strong chest.","50","400",""
+"Barrel","general","Cask, empty.","30","40",""
+"Crate","general","Nail-built box.","15","20",""
+"Ladder (10 ft)","general","Wooden ladder.","20","20",""
+"Pole (10 ft)","general","Ash pole.","8","2",""
+"Ink (vial)","general","Black ink.","0.1","160",""
+"Chalk (10)","general","Marking sticks.","0.2","2",""
+"Paint, pot","general","Small pigment pot.","1","40",""
+"Spy-glass case","general","Leather tube.","0.5","40",""
+"Tent stake set","general","Wood or iron stakes.","3","6",""
+"Whetstone","general","Sharpening stone.","1","4",""
+"Needle and thread","general","Repair kit.","0.1","4",""
+"Winter blanket roll","general","Bedroll plus extra wool.","9","60",""
+"Rain cloak, oiled","general","Waxed canvas cloak.","4","80",""
+"Snowshoes","general","Pair.","4","100",""
+"Skis","general","Pair and pole.","12","160",""
+"Torch, storm","general","Pitch torch that takes weather better.","1.5","4",""
+"Holy water (flask)","general","Blessed water.","1","300",""
+"Acid (vial)","general","Strong acid.","1","200",""
+"Antitoxin (vial)","general","Mundane anti-venom.","0.2","400",""
+"Healing draught","general","Common stimulant tonic, not a miracle.","0.3","300",""
+"Poison, simple (vial)","general","Restricted in most towns.","0.2","1000",""
+"Banner","general","House or company cloth.","3","160",""
+"Tent, pavilion","general","Lord's camp tent.","80","2400",""
+"Portable altar","general","Small traveling shrine.","8","500",""
+"Scabbard","general","Fitted sheath.","1","40",""
+"Weapon oil","general","Protective oil.","0.3","10",""
+"Armor repair kit","general","Rings, leather, rivets.","4","160",""`;
+// Equipment is genre-specific (data/{genre}_eq.csv) — each file lists its
+// own cost column, in whichever unit matches that genre's usual Tech Level:
+// Fantasy's cost(GT) column, or cost($) for the TL > 3 genres (Modern,
+// Dystopian, SciFi, Apocalyptic), authored directly in dollars rather than
+// derived — a future edit to a genre's $ prices changes its real purchasing
+// power too, not just the display. parseEquipmentCsv() detects which
+// column is present and keeps both `cost` (GT) and `modernCost` ($, always
+// cost x20) populated either way, so the rest of the app can read whichever
+// one the active Tech Level calls for.
+function parseEquipmentCsv(csv) {
+  const rows = parseCsvWithHeader(csv);
+  const costKey = Object.keys(rows[0] || {}).find((k) => k.startsWith('cost('));
+  const isDollars = costKey === 'cost($)';
+  return rows.map((r) => {
+    const raw = parseFloat(r[costKey]) || 0;
+    const cost = isDollars ? raw / 20 : raw;
+    return {
+      name: r.Item,
+      type: r.Type,
+      description: r.Description,
+      weight: parseFloat(r['weight(lbs)']) || 0,
+      cost,
+      modernCost: cost * 20,
+      tl: r.TL ? Number(r.TL) : null,
+    };
+  });
+}
+
+// Morrow Project's equipment file (data/morrow_project_eq.csv) is a
+// byte-identical copy of Modern's at genre-creation time — reuse it directly
+// rather than re-embedding the same ~217 rows twice.
+const MORROW_PROJECT_EQ_CSV = MODERN_EQ_CSV;
+
+const EQUIPMENT = parseEquipmentCsv(EQUIPMENT_CSV);
+const MODERN_EQUIPMENT = parseEquipmentCsv(MODERN_EQ_CSV);
+const DYSTOPIAN_EQUIPMENT = parseEquipmentCsv(DYSTOPIAN_EQ_CSV);
+const SCIFI_EQUIPMENT = parseEquipmentCsv(SCIFI_EQ_CSV);
+const APOCALYPTIC_EQUIPMENT = parseEquipmentCsv(APOCALYPTIC_EQ_CSV);
+const MORROW_PROJECT_EQUIPMENT = parseEquipmentCsv(MORROW_PROJECT_EQ_CSV);
+
+const GENRE_EQUIPMENT = {
+  Fantasy: EQUIPMENT,
+  Modern: MODERN_EQUIPMENT,
+  Dystopian: DYSTOPIAN_EQUIPMENT,
+  SciFi: SCIFI_EQUIPMENT,
+  Apocalyptic: APOCALYPTIC_EQUIPMENT,
+  'morrow_project': MORROW_PROJECT_EQUIPMENT,
+};
+
+function getActiveEquipment(genre) {
+  return GENRE_EQUIPMENT[genre] || EQUIPMENT;
+}
+
+// ---------------------------------------------------------------------------
+// Armor detail (data/{genre}_armor.csv) — a SEPARATE, richer catalog from
+// Equipment's own 'armor'-type rows (which stay purchase-only: name, cost,
+// weight, TL — same as before). This file is where an armor item's actual
+// protection values and stamina cost live; the Equipped panel looks a
+// purchased armor item up by name in here, exactly how the Equipped
+// Weapons tables already resolve a bought weapon against
+// MELEE_WEAPONS/RANGED_WEAPONS for its damage stats — Equipment decides
+// what you can buy, this decides what it does once worn.
+// ---------------------------------------------------------------------------
+
+const FANTASY_ARMOR_CSV = `name,type,description,weight,cost,TL,staminaCost,impact,pierce,slash,energy,ballistic,material
+"Padded jack","armor","Quilted cloth armor.","8","5","3",1,2,1,3,0,3,flexible
+"Leather jerkin","armor","Boiled or layered leather.","10","10","3",1,2,2,3,0,3,flexible
+"Studded leather","armor","Leather with metal rivets.","15","25","3",2,3,2,4,0,3,flexible
+"Hide armor","armor","Thick hides and pelts.","20","12","3",2,3,2,3,0,3,flexible
+"Mail shirt","armor","Torso mail.","25","60","3",3,3,4,5,0,3,flexible
+"Mail hauberk","armor","Mail to the knee, with sleeves.","40","100","3",4,4,5,6,0,3,flexible
+"Scale shirt","armor","Overlapping metal scales.","30","80","3",3,4,4,5,0,3,Plate
+"Breastplate","armor","Solid chest and back.","20","200","3",2,5,5,6,0,3,Plate
+"Half plate","armor","Breast, greaves, and vambraces.","40","350","3",4,6,6,7,0,3,Plate
+"Full plate","armor","Complete articulated harness.","55","750","3",6,7,7,8,0,3,Plate
+"Helmet, cap","armor","Simple steel cap.","3","8","3",1,3,3,4,0,3,Plate
+"Helmet, open","armor","Nasal or kettle helm.","5","15","3",1,4,4,5,0,3,Plate
+"Helmet, closed","armor","Visored helm.","8","40","3",1,5,5,6,0,3,Plate
+"Shield, buckler","armor","Small fist shield.","3","5","3",1,2,2,2,0,3,flexible
+"Shield, round","armor","Common wooden shield with boss.","6","8","3",1,3,2,3,0,3,flexible
+"Shield, kite","armor","Tall cavalry or foot shield.","10","12","3",1,4,3,4,0,3,flexible
+"Shield, tower","armor","Full-height pavise.","18","20","3",2,5,4,5,0,3,flexible
+"Barding, leather","armor","Horse leather armor.","40","40","3",4,2,2,3,0,3,flexible
+"Barding, mail","armor","Horse mail.","70","200","3",7,4,5,6,0,3,flexible
+"Barding, plate","armor","Horse plate.","90","500","3",9,7,7,8,0,3,Plate
+"Armor repair kit","general","Rings, leather, rivets.","4","8","",1,0,0,0,0,,flexible`;
+
+const MODERN_ARMOR_CSV = `name,type,description,weight,cost,TL,staminaCost,impact,pierce,slash,energy,ballistic,material
+"Padded jack","armor","Quilted cloth armor.","8","5","3",1,2,1,3,0,3,flexible
+"Leather jerkin","armor","Boiled or layered leather.","10","10","3",1,2,2,3,0,3,flexible
+"Studded leather","armor","Leather with metal rivets.","15","25","3",2,3,2,4,0,3,flexible
+"Hide armor","armor","Thick hides and pelts.","20","12","3",2,3,2,3,0,3,flexible
+"Mail shirt","armor","Torso mail.","25","60","3",3,3,4,5,0,3,flexible
+"Mail hauberk","armor","Mail to the knee, with sleeves.","40","100","3",4,4,5,6,0,3,flexible
+"Scale shirt","armor","Overlapping metal scales.","30","80","3",3,4,4,5,0,3,Plate
+"Breastplate","armor","Solid chest and back.","20","200","3",2,5,5,6,0,3,Plate
+"Half plate","armor","Breast, greaves, and vambraces.","40","350","3",4,6,6,7,0,3,Plate
+"Full plate","armor","Complete articulated harness.","55","750","3",6,7,7,8,0,3,Plate
+"Helmet, cap","armor","Simple steel cap.","3","8","3",1,3,3,4,0,3,Plate
+"Helmet, open","armor","Nasal or kettle helm.","5","15","3",1,4,4,5,0,3,Plate
+"Helmet, closed","armor","Visored helm.","8","40","3",1,5,5,6,0,3,Plate
+"Shield, buckler","armor","Small fist shield.","3","5","3",1,2,2,2,0,3,flexible
+"Shield, round","armor","Common wooden shield with boss.","6","8","3",1,3,2,3,0,3,flexible
+"Shield, kite","armor","Tall cavalry or foot shield.","10","12","3",1,4,3,4,0,3,flexible
+"Shield, tower","armor","Full-height pavise.","18","20","3",2,5,4,5,0,3,flexible
+"Barding, leather","armor","Horse leather armor.","40","40","3",4,2,2,3,0,3,flexible
+"Barding, mail","armor","Horse mail.","70","200","3",7,4,5,6,0,3,flexible
+"Barding, plate","armor","Horse plate.","90","500","3",9,7,7,8,0,3,Plate
+"Armor repair kit","general","Rings, leather, rivets.","4","8","",1,0,0,0,0,,flexible`;
+
+const DYSTOPIAN_ARMOR_CSV = `name,type,description,weight,cost,TL,staminaCost,impact,pierce,slash,energy,ballistic,material
+"Padded jack","armor","Quilted cloth armor.","8","5","3",1,2,1,3,0,3,flexible
+"Leather jerkin","armor","Boiled or layered leather.","10","10","3",1,2,2,3,0,3,flexible
+"Studded leather","armor","Leather with metal rivets.","15","25","3",2,3,2,4,0,3,flexible
+"Hide armor","armor","Thick hides and pelts.","20","12","3",2,3,2,3,0,3,flexible
+"Mail shirt","armor","Torso mail.","25","60","3",3,3,4,5,0,3,flexible
+"Mail hauberk","armor","Mail to the knee, with sleeves.","40","100","3",4,4,5,6,0,3,flexible
+"Scale shirt","armor","Overlapping metal scales.","30","80","3",3,4,4,5,0,3,Plate
+"Breastplate","armor","Solid chest and back.","20","200","3",2,5,5,6,0,3,Plate
+"Half plate","armor","Breast, greaves, and vambraces.","40","350","3",4,6,6,7,0,3,Plate
+"Full plate","armor","Complete articulated harness.","55","750","3",6,7,7,8,0,3,Plate
+"Helmet, cap","armor","Simple steel cap.","3","8","3",1,3,3,4,0,3,Plate
+"Helmet, open","armor","Nasal or kettle helm.","5","15","3",1,4,4,5,0,3,Plate
+"Helmet, closed","armor","Visored helm.","8","40","3",1,5,5,6,0,3,Plate
+"Shield, buckler","armor","Small fist shield.","3","5","3",1,2,2,2,0,3,flexible
+"Shield, round","armor","Common wooden shield with boss.","6","8","3",1,3,2,3,0,3,flexible
+"Shield, kite","armor","Tall cavalry or foot shield.","10","12","3",1,4,3,4,0,3,flexible
+"Shield, tower","armor","Full-height pavise.","18","20","3",2,5,4,5,0,3,flexible
+"Barding, leather","armor","Horse leather armor.","40","40","3",4,2,2,3,0,3,flexible
+"Barding, mail","armor","Horse mail.","70","200","3",7,4,5,6,0,3,flexible
+"Barding, plate","armor","Horse plate.","90","500","3",9,7,7,8,0,3,Plate
+"Armor repair kit","general","Rings, leather, rivets.","4","8","",1,0,0,0,0,,flexible`;
+
+const SCIFI_ARMOR_CSV = `name,type,description,weight,cost,TL,staminaCost,impact,pierce,slash,energy,ballistic,material
+"Padded jack","armor","Quilted cloth armor.","8","5","3",1,2,1,3,0,3,flexible
+"Leather jerkin","armor","Boiled or layered leather.","10","10","3",1,2,2,3,0,3,flexible
+"Studded leather","armor","Leather with metal rivets.","15","25","3",2,3,2,4,0,3,flexible
+"Hide armor","armor","Thick hides and pelts.","20","12","3",2,3,2,3,0,3,flexible
+"Mail shirt","armor","Torso mail.","25","60","3",3,3,4,5,0,3,flexible
+"Mail hauberk","armor","Mail to the knee, with sleeves.","40","100","3",4,4,5,6,0,3,flexible
+"Scale shirt","armor","Overlapping metal scales.","30","80","3",3,4,4,5,0,3,Plate
+"Breastplate","armor","Solid chest and back.","20","200","3",2,5,5,6,0,3,Plate
+"Half plate","armor","Breast, greaves, and vambraces.","40","350","3",4,6,6,7,0,3,Plate
+"Full plate","armor","Complete articulated harness.","55","750","3",6,7,7,8,0,3,Plate
+"Helmet, cap","armor","Simple steel cap.","3","8","3",1,3,3,4,0,3,Plate
+"Helmet, open","armor","Nasal or kettle helm.","5","15","3",1,4,4,5,0,3,Plate
+"Helmet, closed","armor","Visored helm.","8","40","3",1,5,5,6,0,3,Plate
+"Shield, buckler","armor","Small fist shield.","3","5","3",1,2,2,2,0,3,flexible
+"Shield, round","armor","Common wooden shield with boss.","6","8","3",1,3,2,3,0,3,flexible
+"Shield, kite","armor","Tall cavalry or foot shield.","10","12","3",1,4,3,4,0,3,flexible
+"Shield, tower","armor","Full-height pavise.","18","20","3",2,5,4,5,0,3,flexible
+"Barding, leather","armor","Horse leather armor.","40","40","3",4,2,2,3,0,3,flexible
+"Barding, mail","armor","Horse mail.","70","200","3",7,4,5,6,0,3,flexible
+"Barding, plate","armor","Horse plate.","90","500","3",9,7,7,8,0,3,Plate
+"Armor repair kit","general","Rings, leather, rivets.","4","8","",1,0,0,0,0,,flexible`;
+
+const APOCALYPTIC_ARMOR_CSV = `name,type,description,weight,cost,TL,staminaCost,impact,pierce,slash,energy,ballistic,material
+"Padded jack","armor","Quilted cloth armor.","8","5","3",1,2,1,3,0,3,flexible
+"Leather jerkin","armor","Boiled or layered leather.","10","10","3",1,2,2,3,0,3,flexible
+"Studded leather","armor","Leather with metal rivets.","15","25","3",2,3,2,4,0,3,flexible
+"Hide armor","armor","Thick hides and pelts.","20","12","3",2,3,2,3,0,3,flexible
+"Mail shirt","armor","Torso mail.","25","60","3",3,3,4,5,0,3,flexible
+"Mail hauberk","armor","Mail to the knee, with sleeves.","40","100","3",4,4,5,6,0,3,flexible
+"Scale shirt","armor","Overlapping metal scales.","30","80","3",3,4,4,5,0,3,Plate
+"Breastplate","armor","Solid chest and back.","20","200","3",2,5,5,6,0,3,Plate
+"Half plate","armor","Breast, greaves, and vambraces.","40","350","3",4,6,6,7,0,3,Plate
+"Full plate","armor","Complete articulated harness.","55","750","3",6,7,7,8,0,3,Plate
+"Helmet, cap","armor","Simple steel cap.","3","8","3",1,3,3,4,0,3,Plate
+"Helmet, open","armor","Nasal or kettle helm.","5","15","3",1,4,4,5,0,3,Plate
+"Helmet, closed","armor","Visored helm.","8","40","3",1,5,5,6,0,3,Plate
+"Shield, buckler","armor","Small fist shield.","3","5","3",1,2,2,2,0,3,flexible
+"Shield, round","armor","Common wooden shield with boss.","6","8","3",1,3,2,3,0,3,flexible
+"Shield, kite","armor","Tall cavalry or foot shield.","10","12","3",1,4,3,4,0,3,flexible
+"Shield, tower","armor","Full-height pavise.","18","20","3",2,5,4,5,0,3,flexible
+"Barding, leather","armor","Horse leather armor.","40","40","3",4,2,2,3,0,3,flexible
+"Barding, mail","armor","Horse mail.","70","200","3",7,4,5,6,0,3,flexible
+"Barding, plate","armor","Horse plate.","90","500","3",9,7,7,8,0,3,Plate
+"Armor repair kit","general","Rings, leather, rivets.","4","8","",1,0,0,0,0,,flexible`;
+
+function parseArmorCsv(csv) {
+  return parseCsvWithHeader(csv).map((r) => ({
+    name: r.name,
+    type: r.type,
+    description: r.description,
+    weight: parseFloat(r.weight) || 0,
+    cost: parseFloat(r.cost) || 0,
+    tl: r.TL ? Number(r.TL) : null,
+    staminaCost: Number(r.staminaCost) || 0,
+    impact: Number(r.impact) || 0,
+    pierce: Number(r.pierce) || 0,
+    slash: Number(r.slash) || 0,
+    energy: Number(r.energy) || 0,
+    ballistic: Number(r.ballistic) || 0,
+    material: r.material,
+  }));
+}
+
+// Morrow Project's armor file is a byte-identical copy of Modern's.
+const MORROW_PROJECT_ARMOR_CSV = MODERN_ARMOR_CSV;
+
+const FANTASY_ARMOR = parseArmorCsv(FANTASY_ARMOR_CSV);
+const MODERN_ARMOR = parseArmorCsv(MODERN_ARMOR_CSV);
+const DYSTOPIAN_ARMOR = parseArmorCsv(DYSTOPIAN_ARMOR_CSV);
+const SCIFI_ARMOR = parseArmorCsv(SCIFI_ARMOR_CSV);
+const APOCALYPTIC_ARMOR = parseArmorCsv(APOCALYPTIC_ARMOR_CSV);
+const MORROW_PROJECT_ARMOR = parseArmorCsv(MORROW_PROJECT_ARMOR_CSV);
+
+const GENRE_ARMOR = {
+  Fantasy: FANTASY_ARMOR,
+  Modern: MODERN_ARMOR,
+  Dystopian: DYSTOPIAN_ARMOR,
+  SciFi: SCIFI_ARMOR,
+  Apocalyptic: APOCALYPTIC_ARMOR,
+  'morrow_project': MORROW_PROJECT_ARMOR,
+};
+
+function getActiveArmor(genre) {
+  return GENRE_ARMOR[genre] || FANTASY_ARMOR;
+}
 
 // Category tabs, in first-appearance order (weapons, armor, general).
 const EQUIPMENT_TYPES = [...new Set(EQUIPMENT.map((e) => e.type))];
@@ -1603,109 +3059,109 @@ const EQUIPMENT_TYPES = [...new Set(EQUIPMENT.map((e) => e.type))];
 // in the printed Handbook for the reference tables themselves).
 // ---------------------------------------------------------------------------
 
-const SMALL_ARMS_CSV = `Maker,Type,Designation,Calibre,MVel(FPS),ETransfer,Range Inc(M),Fire Mode,TL
-Glock,pistol,17,9x19mm,1230,9,50,semi-auto,5
-Glock,pistol,19,9x19mm,1180,8,50,semi-auto,5
-Glock,pistol,18,9x19mm,1150,8,40,semi-auto/auto,5
-Glock,pistol,21,.45 ACP,830,8,40,semi-auto,5
-Glock,pistol,22,.40 S&W,1150,9,50,semi-auto,5
-Glock,pistol,20,10mm Auto,1250,10,50,semi-auto,5
-Glock,pistol,43X,9x19mm,1100,8,40,semi-auto,5
-SIG Sauer,pistol,P320,9x19mm,1198,9,50,semi-auto,5
-SIG Sauer,pistol,P226,9x19mm,1200,9,50,semi-auto,5
-SIG Sauer,pistol,P365,9x19mm,1120,8,40,semi-auto,5
-SIG Sauer,pistol,M17,9x19mm,1198,9,50,semi-auto,5
-Beretta,pistol,92FS,9x19mm,1280,9,50,semi-auto,5
-Beretta,pistol,M9,9x19mm,1250,9,50,semi-auto,5
-Beretta,pistol,93R,9x19mm,1250,9,50,semi-auto/burst,5
-FN,pistol,Five-seveN,5.7x28mm,2130,10,50,semi-auto,5
-FN,pistol,FNX-45,.45 ACP,900,8,40,semi-auto,5
-Heckler & Koch,pistol,USP,9x19mm,1150,8,50,semi-auto,5
-Heckler & Koch,pistol,VP9,9x19mm,1180,8,50,semi-auto,5
-Heckler & Koch,pistol,Mk 23,.45 ACP,890,8,50,semi-auto,5
-Colt,pistol,M1911A1,.45 ACP,830,8,40,semi-auto,5
-Colt,revolver,Python,.357 Magnum,1450,10,60,single/double-action,5
-Smith & Wesson,pistol,M&P9,9x19mm,1180,8,50,semi-auto,5
-Smith & Wesson,revolver,Model 29,.44 Magnum,1400,12,70,single/double-action,5
-Smith & Wesson,revolver,Model 686,.357 Magnum,1450,10,60,single/double-action,5
-Ruger,pistol,Mark IV,.22 LR,1200,5,40,semi-auto,5
-Walther,pistol,PDP,9x19mm,1160,8,50,semi-auto,5
-CZ,pistol,75,9x19mm,1180,8,50,semi-auto,5
-CZ,pistol,Scorpion EVO 3,9x19mm,1200,9,75,semi-auto/auto,5
-Browning,pistol,Hi-Power,9x19mm,1150,8,50,semi-auto,5
-Heckler & Koch,SMG,MP5A3,9x19mm,1312,9,100,semi-auto/burst/auto,5
-Heckler & Koch,SMG,MP5SD,9x19mm subsonic,935,7,50,semi-auto/burst/auto,5
-Heckler & Koch,SMG,UMP45,.45 ACP,850,8,80,semi-auto/burst/auto,5
-Heckler & Koch,PDW,MP7A1,4.6x30mm,2395,9,150,semi-auto/auto,5
-FN,PDW,P90,5.7x28mm,2345,11,150,semi-auto/auto,5
-IWI,SMG,Uzi,9x19mm,1310,9,100,semi-auto/auto,5
-IWI,SMG,Mini-Uzi,9x19mm,1230,9,80,semi-auto/auto,5
-Colt,SMG,9mm SMG,9x19mm,1300,9,100,semi-auto/auto,5
-B&T,SMG,APC9,9x19mm,1312,9,100,semi-auto/auto,5
-KRISS,SMG,Vector,.45 ACP,850,8,80,semi-auto/auto,5
-Steyr,SMG,TMP / SPP,9x19mm,1280,9,80,semi-auto/auto,5
-Colt,carbine,M4A1,5.56x45mm,2900,13,300,semi-auto/auto,5
-Colt,carbine,M4,5.56x45mm,2900,13,300,semi-auto/burst,5
-Colt / FN,rifle,M16A4,5.56x45mm,3110,14,400,semi-auto/burst,5
-Colt / FN,rifle,M16A1,5.56x45mm,3250,15,400,semi-auto/auto,5
-FN,rifle,SCAR-L,5.56x45mm,2900,13,300,semi-auto/auto,5
-FN,battle rifle,SCAR-H,7.62x51mm,2620,16,400,semi-auto/auto,5
-Heckler & Koch,rifle,HK416,5.56x45mm,2900,13,300,semi-auto/auto,5
-Heckler & Koch,battle rifle,G3A3,7.62x51mm,2625,16,400,semi-auto/auto,5
-Heckler & Koch,battle rifle,HK417,7.62x51mm,2620,16,400,semi-auto/auto,5
-Heckler & Koch,rifle,G36,5.56x45mm,3018,14,400,semi-auto/auto,5
-SIG Sauer,rifle,MCX,5.56x45mm,2800,13,300,semi-auto/auto,5
-SIG Sauer,rifle,MCX,.300 AAC Blackout,2200,14,200,semi-auto/auto,5
-SIG Sauer,rifle,M7,6.8x51mm,3000,17,400,semi-auto/auto,5
-Daniel Defense,rifle,DDM4,5.56x45mm,2900,13,300,semi-auto,5
-IWI,rifle,Tavor X95,5.56x45mm,2900,13,300,semi-auto/auto,5
-IWI,rifle,Galil ACE,7.62x39mm,2350,15,300,semi-auto/auto,5
-Kalashnikov Concern,rifle,AKM,7.62x39mm,2330,14,300,semi-auto/auto,5
-Kalashnikov Concern,rifle,AK-74,5.45x39mm,2950,13,300,semi-auto/auto,5
-Kalashnikov Concern,rifle,AK-12,5.45x39mm,2950,13,300,semi-auto/burst/auto,5
-Springfield Armory,rifle,M1A,7.62x51mm,2700,17,400,semi-auto,5
-FN,rifle,FAL,7.62x51mm,2700,17,400,semi-auto/auto,5
-Armalite,rifle,AR-10,7.62x51mm,2680,17,400,semi-auto,5
-Remington,rifle,M24,7.62x51mm,2640,16,500,bolt,5
-Accuracy International,sniper rifle,AX / L115A3,.338 Lapua,3000,20,800,bolt,5
-Sako,sniper rifle,TRG-42,.338 Lapua,2980,20,800,bolt,5
-Barrett,anti-materiel,M82A1,.50 BMG,2800,29,1000,semi-auto,5
-Barrett,anti-materiel,M107,.50 BMG,2800,29,1000,semi-auto,5
-McMillan,anti-materiel,TAC-50,.50 BMG,2800,29,1200,bolt,5
-Desert Tech,rifle,SRS,.338 Lapua,2900,20,700,bolt,5
-Knight's Armament,rifle,SR-25,7.62x51mm,2600,16,500,semi-auto,5
-Heckler & Koch,rifle,PSG1,7.62x51mm,2650,16,500,semi-auto,5
-load,rifle,6.5 Creedmoor,6.5 Creedmoor,2700,14,600,bolt or semi-auto,5
-load,rifle,.30-06 Springfield,.30-06,2800,17,500,bolt,5
-FN,LMG,M249 SAW,5.56x45mm,3000,13,400,auto,5
-FN,LMG,M249S,5.56x45mm,3000,13,400,semi-auto,5
-IWI,LMG,Negev,5.56x45mm,3000,13,400,semi-auto/auto,5
-FN,GPMG,M240B,7.62x51mm,2800,17,600,auto,5
-Heckler & Koch,GPMG,MG5,7.62x51mm,2700,17,600,auto,5
-Rheinmetall,GPMG,MG3,7.62x51mm,2690,17,600,auto,5
-Kalashnikov Concern,GPMG,PKM,7.62x54mmR,2700,17,500,auto,5
-Kalashnikov Concern,LMG,RPK,7.62x39mm,2400,15,300,semi-auto/auto,5
-Browning,HMG,M2HB,.50 BMG,2910,30,1200,auto,5
-KBP,HMG,NSV,12.7x108mm,2780,28,1200,auto,5
-KBP,HMG,Kord,12.7x108mm,2780,28,1200,auto,5
-Remington,shotgun,870,12 gauge slug,1600,23,75,pump,5
-Remington,shotgun,870,12 gauge 00 buck,1200,8,30,pump,5
-Mossberg,shotgun,500,12 gauge slug,1600,23,75,pump,5
-Mossberg,shotgun,590,12 gauge 00 buck,1200,8,30,pump,5
-Benelli,shotgun,M4,12 gauge slug,1600,23,75,semi-auto,5
-Benelli,shotgun,M2,12 gauge slug,1600,23,75,semi-auto,5
-Benelli,shotgun,M3,12 gauge slug,1600,23,75,pump/semi-auto,5
-Beretta,shotgun,1301 Tactical,12 gauge slug,1600,23,75,semi-auto,5
-Beretta,shotgun,A300 Ultima Patrol,12 gauge slug,1550,23,75,semi-auto,5
-Mossberg,shotgun,930 / 940,12 gauge slug,1550,23,75,semi-auto,5
-Remington,shotgun,1100 / Versa Max,12 gauge slug,1550,23,75,semi-auto,5
-FN,shotgun,SLP,12 gauge slug,1600,23,75,semi-auto,5
-Panzer Arms,shotgun,BP-12,12 gauge slug,1500,22,50,semi-auto,5
-Saiga,shotgun,Saiga-12,12 gauge slug,1500,22,50,semi-auto,5
-MPS,shotgun,AA-12,12 gauge slug,1500,22,75,semi-auto/auto,5
-UTAS,shotgun,UTS-15,12 gauge slug,1500,22,50,pump,5
-Kel-Tec,shotgun,KSG,12 gauge slug,1500,22,50,pump,5
-Winchester,shotgun,SX4,12 gauge slug,1550,23,75,semi-auto,5`;
+const SMALL_ARMS_CSV = `Maker,Type,Designation,Calibre,MVel(FPS),ETransfer,Range Inc(M),Fire Mode,Mag,TL,Cost($),Class
+Glock,pistol,17,9x19mm,1230,9,50,semi-auto,17,5,600,C
+Glock,pistol,19,9x19mm,1180,8,50,semi-auto,15,5,550,C
+Glock,pistol,18,9x19mm,1150,8,40,semi-auto/auto,17,5,45000,R
+Glock,pistol,21,.45 ACP,830,8,40,semi-auto,13,5,650,C
+Glock,pistol,22,.40 S&W,1150,9,50,semi-auto,15,5,600,C
+Glock,pistol,20,10mm Auto,1250,10,50,semi-auto,15,5,700,C
+Glock,pistol,43X,9x19mm,1100,8,40,semi-auto,10,5,500,C
+SIG Sauer,pistol,P320,9x19mm,1198,9,50,semi-auto,17,5,550,C
+SIG Sauer,pistol,P226,9x19mm,1200,9,50,semi-auto,15,5,1000,C
+SIG Sauer,pistol,P365,9x19mm,1120,8,40,semi-auto,10,5,500,C
+SIG Sauer,pistol,M17,9x19mm,1198,9,50,semi-auto,17,5,600,C
+Beretta,pistol,92FS,9x19mm,1280,9,50,semi-auto,15,5,750,C
+Beretta,pistol,M9,9x19mm,1250,9,50,semi-auto,15,5,800,C
+Beretta,pistol,93R,9x19mm,1250,9,50,semi-auto/burst,15,5,50000,R
+FN,pistol,Five-seveN,5.7x28mm,2130,10,50,semi-auto,20,5,1200,C
+FN,pistol,FNX-45,.45 ACP,900,8,40,semi-auto,15,5,800,C
+Heckler & Koch,pistol,USP,9x19mm,1150,8,50,semi-auto,15,5,900,C
+Heckler & Koch,pistol,VP9,9x19mm,1180,8,50,semi-auto,17,5,700,C
+Heckler & Koch,pistol,Mk 23,.45 ACP,890,8,50,semi-auto,12,5,2000,C
+Colt,pistol,M1911A1,.45 ACP,830,8,40,semi-auto,7,5,900,C
+Colt,revolver,Python,.357 Magnum,1450,10,60,single/double-action,6,5,1500,C
+Smith & Wesson,pistol,M&P9,9x19mm,1180,8,50,semi-auto,17,5,550,C
+Smith & Wesson,revolver,Model 29,.44 Magnum,1400,12,70,single/double-action,6,5,1200,C
+Smith & Wesson,revolver,Model 686,.357 Magnum,1450,10,60,single/double-action,6,5,900,C
+Ruger,pistol,Mark IV,.22 LR,1200,5,40,semi-auto,10,5,450,C
+Walther,pistol,PDP,9x19mm,1160,8,50,semi-auto,18,5,600,C
+CZ,pistol,75,9x19mm,1180,8,50,semi-auto,16,5,700,C
+CZ,pistol,Scorpion EVO 3,9x19mm,1200,9,75,semi-auto/auto,30,5,900,C
+Browning,pistol,Hi-Power,9x19mm,1150,8,50,semi-auto,13,5,800,C
+Heckler & Koch,SMG,MP5A3,9x19mm,1312,9,100,semi-auto/burst/auto,30,5,40000,R
+Heckler & Koch,SMG,MP5SD,9x19mm subsonic,935,7,50,semi-auto/burst/auto,30,5,45000,R
+Heckler & Koch,SMG,UMP45,.45 ACP,850,8,80,semi-auto/burst/auto,25,5,25000,R
+Heckler & Koch,PDW,MP7A1,4.6x30mm,2395,9,150,semi-auto/auto,40,5,35000,R
+FN,PDW,P90,5.7x28mm,2345,11,150,semi-auto/auto,50,5,30000,R
+IWI,SMG,Uzi,9x19mm,1310,9,100,semi-auto/auto,32,5,20000,R
+IWI,SMG,Mini-Uzi,9x19mm,1230,9,80,semi-auto/auto,20,5,18000,R
+Colt,SMG,9mm SMG,9x19mm,1300,9,100,semi-auto/auto,32,5,15000,R
+B&T,SMG,APC9,9x19mm,1312,9,100,semi-auto/auto,30,5,2500,C
+KRISS,SMG,Vector,.45 ACP,850,8,80,semi-auto/auto,25,5,1500,C
+Steyr,SMG,TMP / SPP,9x19mm,1280,9,80,semi-auto/auto,30,5,20000,R
+Colt,carbine,M4A1,5.56x45mm,2900,13,300,semi-auto/auto,30,5,1200,C
+Colt,carbine,M4,5.56x45mm,2900,13,300,semi-auto/burst,30,5,1100,C
+Colt / FN,rifle,M16A4,5.56x45mm,3110,14,400,semi-auto/burst,30,5,1500,C
+Colt / FN,rifle,M16A1,5.56x45mm,3250,15,400,semi-auto/auto,30,5,2000,C
+FN,rifle,SCAR-L,5.56x45mm,2900,13,300,semi-auto/auto,30,5,2500,C
+FN,battle rifle,SCAR-H,7.62x51mm,2620,16,400,semi-auto/auto,20,5,3000,C
+Heckler & Koch,rifle,HK416,5.56x45mm,2900,13,300,semi-auto/auto,30,5,2500,C
+Heckler & Koch,battle rifle,G3A3,7.62x51mm,2625,16,400,semi-auto/auto,20,5,1500,C
+Heckler & Koch,battle rifle,HK417,7.62x51mm,2620,16,400,semi-auto/auto,20,5,3500,C
+Heckler & Koch,rifle,G36,5.56x45mm,3018,14,400,semi-auto/auto,30,5,2000,C
+SIG Sauer,rifle,MCX,5.56x45mm,2800,13,300,semi-auto/auto,30,5,1800,C
+SIG Sauer,rifle,MCX,.300 AAC Blackout,2200,14,200,semi-auto/auto,30,5,2000,C
+SIG Sauer,rifle,M7,6.8x51mm,3000,17,400,semi-auto/auto,20,5,3000,C
+Daniel Defense,rifle,DDM4,5.56x45mm,2900,13,300,semi-auto,30,5,1500,C
+IWI,rifle,Tavor X95,5.56x45mm,2900,13,300,semi-auto/auto,30,5,1800,C
+IWI,rifle,Galil ACE,7.62x39mm,2350,15,300,semi-auto/auto,30,5,1200,C
+Kalashnikov Concern,rifle,AKM,7.62x39mm,2330,14,300,semi-auto/auto,30,5,900,C
+Kalashnikov Concern,rifle,AK-74,5.45x39mm,2950,13,300,semi-auto/auto,30,5,1000,C
+Kalashnikov Concern,rifle,AK-12,5.45x39mm,2950,13,300,semi-auto/burst/auto,30,5,1500,C
+Springfield Armory,rifle,M1A,7.62x51mm,2700,17,400,semi-auto,20,5,1800,C
+FN,rifle,FAL,7.62x51mm,2700,17,400,semi-auto/auto,20,5,1500,C
+Armalite,rifle,AR-10,7.62x51mm,2680,17,400,semi-auto,20,5,1600,C
+Remington,rifle,M24,7.62x51mm,2640,16,500,bolt,5,5,2500,C
+Accuracy International,sniper rifle,AX / L115A3,.338 Lapua,3000,20,800,bolt,5,5,6000,C
+Sako,sniper rifle,TRG-42,.338 Lapua,2980,20,800,bolt,5,5,5000,C
+Barrett,anti-materiel,M82A1,.50 BMG,2800,29,1000,semi-auto,10,5,9000,C
+Barrett,anti-materiel,M107,.50 BMG,2800,29,1000,semi-auto,10,5,10000,C
+McMillan,anti-materiel,TAC-50,.50 BMG,2800,29,1200,bolt,5,5,8000,C
+Desert Tech,rifle,SRS,.338 Lapua,2900,20,700,bolt,5,5,4500,C
+Knight's Armament,rifle,SR-25,7.62x51mm,2600,16,500,semi-auto,20,5,3500,C
+Heckler & Koch,rifle,PSG1,7.62x51mm,2650,16,500,semi-auto,5,5,10000,C
+load,rifle,6.5 Creedmoor,6.5 Creedmoor,2700,14,600,bolt or semi-auto,5,5,1200,C
+load,rifle,.30-06 Springfield,.30-06,2800,17,500,bolt,5,5,800,C
+FN,LMG,M249 SAW,5.56x45mm,3000,13,400,auto,belt,5,18000,M
+FN,LMG,M249S,5.56x45mm,3000,13,400,semi-auto,belt,5,3000,C
+IWI,LMG,Negev,5.56x45mm,3000,13,400,semi-auto/auto,belt,5,15000,M
+FN,GPMG,M240B,7.62x51mm,2800,17,600,auto,belt,5,25000,M
+Heckler & Koch,GPMG,MG5,7.62x51mm,2700,17,600,auto,belt,5,20000,M
+Rheinmetall,GPMG,MG3,7.62x51mm,2690,17,600,auto,belt,5,15000,M
+Kalashnikov Concern,GPMG,PKM,7.62x54mmR,2700,17,500,auto,belt,5,10000,M
+Kalashnikov Concern,LMG,RPK,7.62x39mm,2400,15,300,semi-auto/auto,40,5,2000,R
+Browning,HMG,M2HB,.50 BMG,2910,30,1200,auto,belt,5,20000,M
+KBP,HMG,NSV,12.7x108mm,2780,28,1200,auto,belt,5,15000,M
+KBP,HMG,Kord,12.7x108mm,2780,28,1200,auto,belt,5,15000,M
+Remington,shotgun,870,12 gauge slug,1600,23,75,pump,4,5,500,C
+Remington,shotgun,870,12 gauge 00 buck,1200,8,30,pump,4,5,500,C
+Mossberg,shotgun,500,12 gauge slug,1600,23,75,pump,5,5,450,C
+Mossberg,shotgun,590,12 gauge 00 buck,1200,8,30,pump,5,5,550,C
+Benelli,shotgun,M4,12 gauge slug,1600,23,75,semi-auto,5,5,2100,C
+Benelli,shotgun,M2,12 gauge slug,1600,23,75,semi-auto,5,5,1500,C
+Benelli,shotgun,M3,12 gauge slug,1600,23,75,pump/semi-auto,5,5,1600,C
+Beretta,shotgun,1301 Tactical,12 gauge slug,1600,23,75,semi-auto,5,5,1600,C
+Beretta,shotgun,A300 Ultima Patrol,12 gauge slug,1550,23,75,semi-auto,5,5,900,C
+Mossberg,shotgun,930 / 940,12 gauge slug,1550,23,75,semi-auto,5,5,800,C
+Remington,shotgun,1100 / Versa Max,12 gauge slug,1550,23,75,semi-auto,5,5,900,C
+FN,shotgun,SLP,12 gauge slug,1600,23,75,semi-auto,5,5,1200,C
+Panzer Arms,shotgun,BP-12,12 gauge slug,1500,22,50,semi-auto,5,5,600,C
+Saiga,shotgun,Saiga-12,12 gauge slug,1500,22,50,semi-auto,5,5,800,C
+MPS,shotgun,AA-12,12 gauge slug,1500,22,75,semi-auto/auto,8,5,5000,R
+UTAS,shotgun,UTS-15,12 gauge slug,1500,22,50,pump,15,5,900,C
+Kel-Tec,shotgun,KSG,12 gauge slug,1500,22,50,pump,14,5,800,C
+Winchester,shotgun,SX4,12 gauge slug,1550,23,75,semi-auto,4,5,900,C`;
 
 const SMALL_ARMS_MODS_CSV = `Kind,Condition,Chance,ET or armor,Other,TL
 Hit,Routine help / braced / ideal light,+10,,,5
@@ -1842,7 +3298,13 @@ const SMALL_ARMS = parseCsvWithHeader(SMALL_ARMS_CSV).map((r) => ({
   energyTransfer: r.ETransfer,
   rangeInc: r['Range Inc(M)'],
   fireMode: r['Fire Mode'],
+  mag: r.Mag ? Number(r.Mag) : null,
   tl: r.TL ? Number(r.TL) : null,
+  cost: parseFloat(r['Cost($)']) || 0,
+  // Legal-availability tier (Common/Restricted/Military), not the
+  // character Expertise class (Martial/Covert/Adept/Shepherd) — kept
+  // under a distinct name to avoid confusion with that unrelated concept.
+  weaponClass: r.Class,
 }));
 
 const SMALL_ARMS_MODS = parseCsvWithHeader(SMALL_ARMS_MODS_CSV).map((r) => ({
@@ -1907,7 +3369,7 @@ function setEquipmentCarried(character, item, value) {
 }
 
 function getEquipmentOwnedEntries(character) {
-  return EQUIPMENT
+  return getActiveEquipment(character.genre)
     .filter((item) => getEquipmentQuantity(character, item) > 0)
     .map((item) => {
       const entry = character.equipmentOwned[item.name];
@@ -1939,7 +3401,7 @@ function removeEquipmentItem(character, item) {
 }
 
 function getEquipmentSpentGT(character) {
-  return EQUIPMENT.reduce((sum, item) => sum + item.cost * getEquipmentQuantity(character, item), 0);
+  return getActiveEquipment(character.genre).reduce((sum, item) => sum + item.cost * getEquipmentQuantity(character, item), 0);
 }
 
 // Total weight of everything actually Equipped or Carried — items merely
@@ -1963,11 +3425,15 @@ function getWornWeapons(character, category) {
 }
 
 
-// Coinage (data/coinage.txt): 1 Golden Royal = 5 Gold Dragons = 50 Gold
-// Talons; 1 Gold Talon = 1 Silver Fang = 10 Silver Chips = 100 Coppers.
-// Equipment costs are listed in Gold Talons (GT), so every coin's value below
-// is expressed relative to that.
-const COINAGE = [
+// Wealth (data/coinage.txt). Two denomination sets, switched by Tech Level:
+// TL <= 3 (Fantasy-era) uses the 6-coin set — 1 Golden Royal = 5 Gold
+// Dragons = 50 Gold Talons; 1 Gold Talon = 1 Silver Fang = 10 Silver Chips =
+// 100 Coppers. TL > 3 uses a simpler 3-field set — Dollars, Credit, and
+// Other are all the same fungible currency (1 unit = 1 Gold Talon, so
+// existing Equipment GT costs need no conversion), equally good for a
+// purchase. Every coin's value is expressed relative to a Gold Talon (GT),
+// the unit Equipment costs are listed in.
+const FANTASY_COINAGE = [
   { id: 'gr', name: 'Golden Royal', valueInGT: 50 },
   { id: 'gd', name: 'Gold Dragon', valueInGT: 10 },
   { id: 'gt', name: 'Gold Talon', valueInGT: 1 },
@@ -1976,24 +3442,47 @@ const COINAGE = [
   { id: 'cp', name: 'Copper', valueInGT: 0.01 },
 ];
 
-// Every Focus starts with the same wallet — 100 Gold Talons, as 100 individual
-// Gold Talon coins (not broken into Golden Royals/Dragons).
+// Dollars, Credit, and Other are all the same currency — fully fungible,
+// equally good for a purchase — so all three carry the same purchasing
+// power (1 unit = 1 Gold Talon, same as Dollars alone used to).
+const MODERN_COINAGE = [
+  { id: 'dollars', name: 'Dollars', valueInGT: 1 },
+  { id: 'credit', name: 'Credit', valueInGT: 1 },
+  { id: 'other', name: 'Other', valueInGT: 1 },
+];
+
+// Every coin id that might ever appear on a character, regardless of which
+// set is currently active — used to zero-init a fresh wallet and to restore
+// a loaded save (so switching Tech Level later never drops a value the
+// player already entered in the other set).
+const COINAGE = [...FANTASY_COINAGE, ...MODERN_COINAGE];
+
+function getActiveCoinage(character) {
+  return character.techLevel > 3 ? MODERN_COINAGE : FANTASY_COINAGE;
+}
+
+// Every Focus starts with the same wallet — 100 Gold Talons (or, for a
+// Tech Level > 3 character, the Dollar-equivalent) — as 100 individual
+// coins, not broken into larger denominations.
 const STARTING_GOLD_TALONS = 100;
 
 function getWealthInGT(character) {
-  return COINAGE.reduce((sum, coin) => sum + (Number(character.coinage[coin.id]) || 0) * coin.valueInGT, 0);
+  return getActiveCoinage(character).reduce((sum, coin) => sum + (Number(character.coinage[coin.id]) || 0) * coin.valueInGT, 0);
 }
 
-// Wallet value in copper (the smallest unit — 1 cp = 1) so purchases can be
-// deducted/refunded as whole coins without floating-point drift.
+// Wallet value in copper (the smallest fantasy unit — 1 cp = 1, so 1 GT =
+// 100) so Fantasy purchases can be deducted/refunded without
+// floating-point drift.
 function getWalletCopper(character) {
-  return COINAGE.reduce((sum, coin) => sum + (Number(character.coinage[coin.id]) || 0) * coin.valueInGT * 100, 0);
+  return FANTASY_COINAGE.reduce((sum, coin) => sum + (Number(character.coinage[coin.id]) || 0) * coin.valueInGT * 100, 0);
 }
 
-// Rebuilds the wallet from a total-copper value as a canonical largest-
-// denomination-first breakdown, merging the Gold Talon/Silver Fang tie into
-// Gold Talon — this is what actually "makes change" (breaking or combining
-// coins) whenever a purchase or refund changes the wallet's total value.
+// Rebuilds the Fantasy wallet (TL <= 3) from a total-copper value as a
+// canonical largest-denomination-first breakdown — this is what actually
+// "makes change" (breaking or combining coins) whenever a purchase or
+// refund changes the wallet's total value. Silver Fang ties Gold Talon's
+// value and is excluded from the breakdown (left at whatever the player set
+// it to by hand) so that tie never creates an ambiguous split.
 function setWalletFromCopper(character, totalCopper) {
   let remaining = Math.max(0, Math.round(totalCopper));
   character.coinage.gr = Math.floor(remaining / 5000); remaining -= character.coinage.gr * 5000;
@@ -2005,18 +3494,38 @@ function setWalletFromCopper(character, totalCopper) {
 }
 
 // Deducts costGT worth of value from the wallet — never goes negative; a
-// cost that exceeds total wealth just empties the wallet.
+// cost that exceeds total wealth just empties the wallet. For TL > 3,
+// Dollars/Credit/Other are fully fungible, so a purchase just draws from
+// whichever of the three has money, in that order, rather than "making
+// change" across denominations the way Fantasy coins do.
 function spendFromCoinage(character, costGT) {
+  if (character.techLevel > 3) {
+    let remaining = Math.max(0, costGT);
+    MODERN_COINAGE.forEach((coin) => {
+      if (remaining <= 0) return;
+      const have = Number(character.coinage[coin.id]) || 0;
+      const take = Math.min(have, remaining);
+      character.coinage[coin.id] = have - take;
+      remaining -= take;
+    });
+    return;
+  }
   setWalletFromCopper(character, getWalletCopper(character) - Math.round(costGT * 100));
 }
 
 // Adds valueGT worth of value back to the wallet (e.g. un-buying an item).
+// For TL > 3 the refund always lands in Dollars (as good as Credit or
+// Other, since they're fungible — Dollars is just the conventional default).
 function refundToCoinage(character, valueGT) {
+  if (character.techLevel > 3) {
+    character.coinage.dollars = (Number(character.coinage.dollars) || 0) + Math.max(0, valueGT);
+    return;
+  }
   setWalletFromCopper(character, getWalletCopper(character) + Math.round(valueGT * 100));
 }
 
 // Weapon skills and (non-Spell/Miracle) Skills spend from two SEPARATE
-// per-class pools now, not one shared pool. A Wiz/Priest "Spell: X" or
+// per-class pools now, not one shared pool. A Adept/Shepherd "Spell: X" or
 // "Miracle: X" Skill entry counts as a Weapon skill for this split (it still
 // lives in the SKILLS array and the skillSpend ledger — only which pool
 // pays for it changes).
@@ -2076,7 +3585,7 @@ function getSkillPointsAvailable(character, skill, cls) {
 // gates buying another class dot in ANY class (see toggleClassDot) until
 // every dot already granted has been spent.
 function hasUnspentClassDots(character) {
-  return CLASSES.some((cls) => getClassWeaponPointsAvailable(character, cls) > 0
+  return Object.keys(character.classDots).some((cls) => getClassWeaponPointsAvailable(character, cls) > 0
     || getClassSkillPointsAvailable(character, cls) > 0);
 }
 
@@ -2108,16 +3617,9 @@ function setClassDotsForClass(character, cls, targetRank) {
 // attributes/focus/race. Also used as the "Target" base for Weapon skills.
 // ---------------------------------------------------------------------------
 
-const COMBAT_CLASS_FOCUS_BONUS = {
-  Fighter: 25,
-  Priest: 20,
-  Outlaw: 15,
-  Wiz: 10,
-};
-
 function getMeleeBaseAttack(c) {
   return roundUp(
-    COMBAT_CLASS_FOCUS_BONUS[c.focus]
+    getExpertiseEntry(c.genre, c.focus).combatFocusBonus
     + (getEffectiveAttribute(c, 'Strength') + getEffectiveAttribute(c, 'Agility')
       + getEffectiveAttribute(c, 'Intellect') + getEffectiveAttribute(c, 'Intuition')) / 4
   );
@@ -2161,22 +3663,21 @@ const COMBAT_STAT_GROUP = {
   ],
 };
 
-// Armored Defense: Base Defense (read-only) + a player-entered Armor Value.
-function getArmoredDefenseTotal(character) {
-  return roundUp(getBaseDefense(character) + (Number(character.armorValue) || 0));
-}
-
-// Casting: class_focus_bonus (per Focus, one table for Magic and one for
-// Miracles) + the average of 4 effective attributes.
-const CLASS_MAGIC_FOCUS_BONUS = { Fighter: 0, Outlaw: 5, Priest: 5, Wiz: 15 };
-const CLASS_MIRACLE_FOCUS_BONUS = { Fighter: 0, Outlaw: 0, Wiz: 5, Priest: 15 };
-
+// Casting: class_focus_bonus (per Focus, per genre) + the average of 4
+// effective attributes.
 function getMagicCasting(c) {
-  return roundUp(CLASS_MAGIC_FOCUS_BONUS[c.focus] + getAverageEffectiveAttribute(c, ['Magic', 'Intellect', 'Willpower', 'Dexterity']));
+  return roundUp(getExpertiseEntry(c.genre, c.focus).magicFocusBonus + getAverageEffectiveAttribute(c, ['Mysticism', 'Intellect', 'Willpower', 'Dexterity']));
 }
 
 function getMiracleCasting(c) {
-  return roundUp(CLASS_MIRACLE_FOCUS_BONUS[c.focus] + getAverageEffectiveAttribute(c, ['Magic', 'Willpower', 'Intuition', 'Agility']));
+  return roundUp(getExpertiseEntry(c.genre, c.focus).miracleFocusBonus + getAverageEffectiveAttribute(c, ['Mysticism', 'Willpower', 'Intuition', 'Agility']));
+}
+
+// Not gated by Magic (unlike the other two) — Psychic Powers are their own
+// optional system with its own Psychic on/off toggle (see
+// character.psychicEnabled, Appendix P).
+function getPsychicAbility(c) {
+  return roundUp(getEffectiveAttribute(c, 'Willpower') + getAverageEffectiveAttribute(c, ['Willpower', 'Intellect', 'Intuition']));
 }
 
 const CASTING_STAT_GROUP = {
@@ -2184,14 +3685,23 @@ const CASTING_STAT_GROUP = {
     {
       id: 'magicCasting',
       name: 'Magic Casting',
-      formulaText: 'class_magic_focus_bonus + avg(Magic, Intellect, Willpower, Dexterity)',
+      formulaText: 'class_magic_focus_bonus + avg(Mysticism, Intellect, Willpower, Dexterity)',
       formula: getMagicCasting,
+      // Only meaningful when Magic is enabled — see renderCombatStats().
+      requiresMagic: true,
     },
     {
       id: 'miracleCasting',
       name: 'Miracle Casting',
-      formulaText: 'class_miracle_focus_bonus + avg(Magic, Willpower, Intuition, Agility)',
+      formulaText: 'class_miracle_focus_bonus + avg(Mysticism, Willpower, Intuition, Agility)',
       formula: getMiracleCasting,
+      requiresMagic: true,
+    },
+    {
+      id: 'psychicAbility',
+      name: 'Psychic Ability',
+      formulaText: 'Willpower + avg(Willpower, Intellect, Intuition)',
+      formula: getPsychicAbility,
     },
   ],
 };
@@ -2201,13 +3711,11 @@ const CASTING_STAT_GROUP = {
 // is computed and read-only, Magic/Misc are free player-entered numbers.
 // ---------------------------------------------------------------------------
 
-const VITALS_FOCUS_MOD_PD = { Fighter: 1, Priest: 0.9, Outlaw: 0.8, Wiz: 0.7 };
-const VITALS_FOCUS_MOD_MD = { Fighter: 0.7, Priest: 0.9, Outlaw: 0.9, Wiz: 1.1 };
 
 // Total dots invested across all four classes, regardless of which one is
 // currently the Focus. Only the *_mod tables above vary with Focus.
 function getTotalClassDots(character) {
-  return CLASSES.reduce((sum, cls) => sum + character.classDots[cls], 0);
+  return Object.values(character.classDots).reduce((sum, v) => sum + (v || 0), 0);
 }
 
 const VITALS_STATS = [
@@ -2219,7 +3727,7 @@ const VITALS_STATS = [
       const race = RACES[c.race];
       const sum = getEffectiveAttribute(c, 'Physique') + getEffectiveAttribute(c, 'Strength')
         + getEffectiveAttribute(c, 'Constitution');
-      const focusMod = VITALS_FOCUS_MOD_PD[c.focus];
+      const focusMod = getExpertiseEntry(c.genre, c.focus).vitalsPdMod;
       const dots = getTotalClassDots(c);
       return roundUp((sum / 2) * (focusMod + race.race_pd_mult) * dots);
     },
@@ -2232,7 +3740,7 @@ const VITALS_STATS = [
       const race = RACES[c.race];
       const sum = getEffectiveAttribute(c, 'Intellect') + getEffectiveAttribute(c, 'Willpower')
         + getEffectiveAttribute(c, 'Constitution');
-      const focusMod = VITALS_FOCUS_MOD_MD[c.focus];
+      const focusMod = getExpertiseEntry(c.genre, c.focus).vitalsMdMod;
       const dots = getTotalClassDots(c);
       return roundUp((sum / 2) * (focusMod + race.race_md_mult) * dots);
     },
@@ -2250,12 +3758,12 @@ const VITALS_STATS = [
   {
     id: 'initiative',
     name: 'Initiative',
-    formulaText: '(Agility + Intellect + Intuition + Bravery) / 4 + (5 * Outlaw ranks) + (3 * Fighter ranks) + race_init_mod',
+    formulaText: '(Agility + Intellect + Intuition + Bravery) / 4 + (5 * Covert ranks) + (3 * Martial ranks) + race_init_mod',
     formula: (c) => {
       const race = RACES[c.race];
       const sum = getEffectiveAttribute(c, 'Agility') + getEffectiveAttribute(c, 'Intellect')
         + getEffectiveAttribute(c, 'Intuition') + getEffectiveAttribute(c, 'Bravery');
-      return roundUp((sum / 4) + (5 * c.classDots.Outlaw) + (3 * c.classDots.Fighter) + race.race_init_mod);
+      return roundUp((sum / 4) + (5 * c.classDots.Covert) + (3 * c.classDots.Martial) + race.race_init_mod);
     },
   },
   {
@@ -2279,8 +3787,12 @@ const VITALS_STATS = [
 ];
 
 // Stamina Cost: a small sub-list nested under Stamina. Each entry's Base is
-// a fixed number (not attribute-derived); Armor and Misc are free player-
-// entered numbers, same Base + Armor + Misc = Total shape as the stats above.
+// a fixed number (not attribute-derived); Armor is derived (every currently
+// Equipped armor/shield's own staminaCost, summed — see
+// getEquippedArmorStaminaCost) and the same across all 4 rows, since
+// wearing heavy armor costs stamina to fight in regardless of how you're
+// attacking; Misc is still a free player-entered number. Base + Armor +
+// Misc = Total, same shape as the stats above.
 const STAMINA_COST_ITEMS = [
   { id: 'combatFist', name: 'Combat Fist', base: 2 },
   { id: 'combat1Hand', name: 'Combat 1-hand', base: 4 },
@@ -2288,9 +3800,24 @@ const STAMINA_COST_ITEMS = [
   { id: 'ranged', name: 'Ranged', base: 5 },
 ];
 
+// Sums staminaCost across every armor/shield item the character actually
+// has Equipped right now (Carried-but-not-worn doesn't count — only what
+// you're wearing costs stamina to fight in). Looks each owned 'armor'-type
+// item up by name in the active genre's armor catalog, same as the
+// Equipped panel's Armor table.
+function getEquippedArmorStaminaCost(character) {
+  const armorCatalog = getActiveArmor(character.genre);
+  return getEquipmentOwnedEntries(character)
+    .filter(({ item, equipped }) => equipped && item.type === 'armor')
+    .reduce((sum, { item, quantity }) => {
+      const detail = armorCatalog.find((a) => a.name === item.name);
+      return sum + (detail ? detail.staminaCost : 0) * quantity;
+    }, 0);
+}
+
 function getStaminaCostTotal(character, item) {
   const state = character.vitals.staminaCost[item.id];
-  return roundUp(item.base + (Number(state.armor) || 0) + (Number(state.misc) || 0));
+  return roundUp(item.base + getEquippedArmorStaminaCost(character) + (Number(state.misc) || 0));
 }
 
 function rollAttribute() {
@@ -2299,11 +3826,17 @@ function rollAttribute() {
 }
 
 function createDefaultCharacter() {
+  const defaultTechLevel = getDefaultTechLevel();
+  const defaultTier = TECH_LEVELS.find((t) => t.tl === defaultTechLevel);
+  const defaultGenreLabel = defaultTier ? defaultTier.genreLabels[0] : 'fantasy';
+  const defaultGenre = resolveCatalogGenre(defaultGenreLabel);
+  const defaultClasses = getActiveClasses(defaultGenre);
+
   const attributes = {};
   ATTRIBUTES.forEach((attr) => { attributes[attr] = rollAttribute(); });
 
   const classDots = {};
-  CLASSES.forEach((cls) => { classDots[cls] = 0; });
+  defaultClasses.forEach((cls) => { classDots[cls] = 0; });
 
   const skillSpend = {};
   ALL_SKILLS.forEach((s) => { skillSpend[s.name] = {}; });
@@ -2322,26 +3855,43 @@ function createDefaultCharacter() {
   MIRACLES.forEach((m) => { miraclesLearned[m.id] = false; });
 
   const staminaCost = {};
-  STAMINA_COST_ITEMS.forEach((item) => { staminaCost[item.id] = { armor: 0, misc: 0 }; });
+  STAMINA_COST_ITEMS.forEach((item) => { staminaCost[item.id] = { misc: 0 }; });
 
   const coinage = {};
   COINAGE.forEach((c) => { coinage[c.id] = 0; });
   coinage.gt = STARTING_GOLD_TALONS;
+  coinage.dollars = STARTING_GOLD_TALONS;
 
   return {
     name: '',
-    focus: 'Fighter',
+    focus: defaultClasses[0],
     race: 'Human',
-    genre: 'Fantasy',
-    magicEnabled: true,
-    // False until the player explicitly touches the Magic radio buttons —
-    // while false, switching Genre keeps re-deriving magicEnabled from the
-    // genre's own default (true for Fantasy, false otherwise). True locks
-    // magicEnabled to whatever the player chose, independent of genre, so
-    // Magic can be "bent" onto any setting. Must be a persisted character
-    // field (not transient app state) so a save/reload doesn't look like an
-    // implicit "explicit choice" was made.
+    // There's no independent Genre control any more — Genre is always
+    // derived from the Tech Level selector. genreLabel is the raw label
+    // from that tier's data/tech_levels.csv row; genre is that label
+    // resolved to one of the 5 real catalogs via resolveCatalogGenre().
+    // genreLabel is its own persisted field (not just derivable by
+    // reversing resolveCatalogGenre()) because a tier with multiple labels
+    // (e.g. TL 6) needs to remember which one the player actually picked.
+    genreLabel: defaultGenreLabel,
+    genre: defaultGenre,
+    techLevel: defaultTechLevel,
+    // Magic/Psychic/Mutant/Cyber all default from the selected Tech Level's
+    // own tech_levels.csv row (see parseTechLevels) rather than a hardcoded
+    // value — each stays pinned to that row's on/off until the player
+    // explicitly touches its radio buttons (…Explicit below), after which
+    // switching Tech Level never overwrites their choice, so any of the 4
+    // can be "bent" onto any setting. …Explicit must be a persisted
+    // character field (not transient app state) so a save/reload doesn't
+    // look like an implicit "explicit choice" was made.
+    magicEnabled: defaultTier ? defaultTier.magic : true,
     magicEnabledExplicit: false,
+    psychicEnabled: defaultTier ? defaultTier.psychic : false,
+    psychicEnabledExplicit: false,
+    mutantEnabled: defaultTier ? defaultTier.mutant : false,
+    mutantEnabledExplicit: false,
+    cyberEnabled: defaultTier ? defaultTier.cyber : false,
+    cyberEnabledExplicit: false,
     attributes,
     classDots,
     skillSpend,
@@ -2353,8 +3903,7 @@ function createDefaultCharacter() {
     extraMiracleBaseRank: 0,
     coinage,
     equipmentOwned: {},
-    focusWeapons: rollFocusWeapons('Fighter', 'Human'),
-    armorValue: 0,
+    focusWeapons: rollFocusWeapons(defaultGenre, defaultClasses[0], 'Human'),
     vitals: {
       height: '',
       weight: '',
@@ -2369,19 +3918,170 @@ function createDefaultCharacter() {
   };
 }
 
+// ---------------------------------------------------------------------------
+// Game Set consumption (data/gameset.json, published from vg-tools)
+//
+// vg-tools is the source of authority for every genre's content — this is
+// how that reaches the live character builder. vg-tools' "Publish Game
+// Set" button bundles its entire current in-memory state (every file it
+// knows about, across every genre, plus tech_levels.csv and the current
+// list of known genres) into one JSON file. app.js fetches it once at
+// startup (works only over http(s); fails silently and harmlessly under
+// file://, same as the older tech_levels.csv-only fetch it supersedes) and
+// hands it to applyGameSet() below, which re-derives every base and
+// dependent constant in this file from it — including genres this file has
+// never heard of before, so a brand-new genre vg-tools creates needs no
+// code change here to become usable, only a publish.
+//
+// Every base constant below is mutated in place (array .length=0+push, or
+// object key delete+assign) rather than reassigned, since many of them
+// (e.g. GENRE_ARMOR.Fantasy / FANTASY_ARMOR) are the SAME object by
+// reference on purpose — reassigning one would silently desync the other.
+// ---------------------------------------------------------------------------
+
+function replaceArrayContents(target, items) {
+  target.length = 0;
+  items.forEach((item) => target.push(item));
+}
+
+function replaceObjectContents(target, source) {
+  Object.keys(target).forEach((key) => { delete target[key]; });
+  Object.assign(target, source);
+}
+
+// "Morrow Project" (tech_levels.csv's display label) -> "morrow_project"
+// (the catalog/filename key) — mirrors how vg-tools derives a genre's own
+// identity from its lowercase, underscore-joined file prefix.
+function genreFilePrefix(genre) {
+  return String(genre).toLowerCase().replace(/\s+/g, '_');
+}
+
+function applyGameSet(gameSet) {
+  if (!gameSet || typeof gameSet !== 'object') return;
+  const files = gameSet.files || {};
+  const genres = Array.isArray(gameSet.knownGenres) && gameSet.knownGenres.length ? gameSet.knownGenres : GENRES;
+
+  genres.forEach((genre) => {
+    if (!GENRES.includes(genre)) GENRES.push(genre);
+    const lowerLabel = genre.toLowerCase().replace(/_/g, ' ');
+    if (!(lowerLabel in GENRE_LABEL_MAP)) GENRE_LABEL_MAP[lowerLabel] = genre;
+    if (!(genre in GENRE_EXPERTISE)) GENRE_EXPERTISE[genre] = [];
+    if (!(genre in GENRE_SKILLS)) GENRE_SKILLS[genre] = [];
+    if (!(genre in GENRE_MELEE_WEAPONS)) GENRE_MELEE_WEAPONS[genre] = [];
+    if (!(genre in GENRE_RANGED_WEAPONS)) GENRE_RANGED_WEAPONS[genre] = [];
+    if (!(genre in GENRE_EQUIPMENT)) GENRE_EQUIPMENT[genre] = [];
+    if (!(genre in GENRE_ARMOR)) GENRE_ARMOR[genre] = [];
+    if (!(genre in RACES_BY_GENRE)) RACES_BY_GENRE[genre] = {};
+
+    const prefix = genreFilePrefix(genre);
+
+    const expertiseText = files[`${prefix}_expertise.csv`];
+    if (expertiseText != null) replaceArrayContents(GENRE_EXPERTISE[genre], parseExpertiseCsv(expertiseText));
+
+    // Fantasy's Skills/Melee/Ranged baseline files aren't genre-prefixed
+    // (fantasy_skills.csv is the Spell:/Miracle: add-on, not the baseline;
+    // melee_weapons.csv/ranged_weapons.csv ARE the shared baseline every
+    // genre gets for free) — every other genre follows the generic
+    // {genre}_X.csv pattern and lands in its own GENRE_X[genre] slot.
+    if (genre === 'Fantasy') {
+      const fantasySkillsText = files['fantasy_skills.csv'];
+      if (fantasySkillsText != null) replaceArrayContents(FANTASY_SKILLS, parseSkillsCsv(fantasySkillsText));
+      const meleeText = files['melee_weapons.csv'];
+      if (meleeText != null) replaceArrayContents(MELEE_WEAPONS, parseMeleeWeaponsCsv(meleeText));
+      const rangedText = files['ranged_weapons.csv'];
+      if (rangedText != null) replaceArrayContents(RANGED_WEAPONS, parseRangedWeaponsCsv(rangedText));
+    } else {
+      const skillsText = files[`${prefix}_skills.csv`];
+      if (skillsText != null) replaceArrayContents(GENRE_SKILLS[genre], parseSkillsCsv(skillsText));
+      const meleeText = files[`${prefix}_melee.csv`];
+      if (meleeText != null) replaceArrayContents(GENRE_MELEE_WEAPONS[genre], parseMeleeWeaponsCsv(meleeText));
+      const rangedText = files[`${prefix}_ranged.csv`];
+      if (rangedText != null) replaceArrayContents(GENRE_RANGED_WEAPONS[genre], parseRangedWeaponsCsv(rangedText));
+    }
+
+    const eqText = files[`${prefix}_eq.csv`];
+    if (eqText != null) replaceArrayContents(GENRE_EQUIPMENT[genre], parseEquipmentCsv(eqText));
+
+    const armorText = files[`${prefix}_armor.csv`];
+    if (armorText != null) replaceArrayContents(GENRE_ARMOR[genre], parseArmorCsv(armorText));
+
+    const raceText = files[`${prefix}_race.csv`];
+    if (raceText != null) replaceObjectContents(RACES_BY_GENRE[genre], parseRaceCsv(raceText));
+  });
+
+  // Global (not genre-split) content — same files the live app already
+  // reads from today, just refreshed from vg-tools' published copy instead
+  // of a hand-maintained embedded default.
+  if (files['special.csv'] != null) replaceArrayContents(SPECIALS, parseSpecialCsv(files['special.csv']));
+  if (files['small_arms.csv'] != null) {
+    replaceArrayContents(SMALL_ARMS, parseCsvWithHeader(files['small_arms.csv']).map((r) => ({
+      maker: r.Maker,
+      type: r.Type,
+      designation: r.Designation,
+      calibre: r.Calibre,
+      muzzleVelocity: r['MVel(FPS)'],
+      energyTransfer: r.ETransfer,
+      rangeInc: r['Range Inc(M)'],
+      fireMode: r['Fire Mode'],
+      mag: r.Mag ? Number(r.Mag) : null,
+      tl: r.TL ? Number(r.TL) : null,
+      cost: parseFloat(r['Cost($)']) || 0,
+      weaponClass: r.Class,
+    })));
+  }
+  if (files['fantasy_spells.csv'] != null) {
+    replaceArrayContents(SPELLS, parseCsvWithHeader(files['fantasy_spells.csv']).map((r) => ({
+      id: r.id, school: r.school, name: r.name, cost: r.cost,
+      dotsRequired: Number(r['Dots Reqd']) || 0,
+      defy: r.defy === 'none' ? '' : r.defy,
+      clock: r.clock, crutch: r.crutch, description: r.full_description,
+    })));
+  }
+  if (files['fantasy_miracles.csv'] != null) {
+    replaceArrayContents(MIRACLES, parseCsvWithHeader(files['fantasy_miracles.csv']).map((r) => ({
+      id: r.id, school: r.school, name: r.name, cost: r.cost,
+      dotsRequired: Number(r['Dots Reqd']) || 0,
+      defy: r.defy === 'none' ? '' : r.defy,
+      clock: r.clock, crutch: r.crutch, description: r.full_description,
+    })));
+  }
+  // Each Psychic tier file is cumulative (TL9+ already contains TL6-8's
+  // content) — use the highest tier actually published rather than
+  // concatenating all four, which would just duplicate every lower tier's
+  // rows.
+  const psychicText = files['psychic_tl9.csv'] || files['psychic_tl8.csv'] || files['psychic_tl7.csv'] || files['psychic_tl6.csv'];
+  if (psychicText != null) replaceArrayContents(PSYCHIC_POWERS, parsePsychicPowersCsv(psychicText));
+
+  if (gameSet.techLevels) {
+    const freshTiers = parseTechLevels(gameSet.techLevels);
+    if (freshTiers.length) replaceArrayContents(TECH_LEVELS, freshTiers);
+  }
+
+  // Recompute every value derived from the above, in dependency order.
+  replaceObjectContents(RACES, Object.assign({}, ...genres.map((g) => RACES_BY_GENRE[g] || {})));
+  replaceArrayContents(RACE_NAMES, Object.keys(RACES));
+  const nonFantasyGenres = genres.filter((g) => g !== 'Fantasy');
+  replaceArrayContents(ALL_MELEE_WEAPONS, MELEE_WEAPONS.concat(...nonFantasyGenres.map((g) => GENRE_MELEE_WEAPONS[g] || [])));
+  replaceArrayContents(ALL_RANGED_WEAPONS, RANGED_WEAPONS.concat(...nonFantasyGenres.map((g) => GENRE_RANGED_WEAPONS[g] || [])));
+  replaceArrayContents(ALL_SKILLS, SKILLS.concat(FANTASY_SKILLS, ...nonFantasyGenres.map((g) => GENRE_SKILLS[g] || []), PSYCHIC_POWERS));
+  replaceArrayContents(SPELL_SCHOOLS, [...new Set(SPELLS.map((s) => s.school))].sort());
+  replaceArrayContents(MIRACLE_SCHOOLS, [...new Set(MIRACLES.map((s) => s.school))].sort());
+  replaceArrayContents(EQUIPMENT_TYPES, [...new Set(EQUIPMENT.map((e) => e.type))]);
+}
+
 window.VennRPG = {
   ATTRIBUTES, ATTRIBUTE_MIN, ATTRIBUTE_MAX,
-  CLASSES, CLASS_DOTS_MIN, CLASS_DOTS_MAX, CLASS_DOTS_ROWS, CLASS_DOTS_PER_ROW,
-  DEFY_KEY_ATTRIBUTES, getDefyPercent, getDefyValue,
-  GENRES, GENRE_BASE_TL,
-  RACES, RACE_NAMES, getRaceAttributeMod, getEffectiveAttribute, getAverageEffectiveAttribute,
+  CLASSES, getActiveClasses, CLASS_DOTS_MIN, CLASS_DOTS_MAX, CLASS_DOTS_ROWS, CLASS_DOTS_PER_ROW,
+  GENRE_EXPERTISE, getActiveExpertise, getExpertiseEntry, getDefyPercent, getDefyValue,
+  GENRES, TECH_LEVELS, parseTechLevels, getAvailableTechLevels, getDefaultTechLevel, resolveCatalogGenre, applyGameSet,
+  RACES, RACE_NAMES, getRaceNamesForGenre, getRaceAttributeMod, getEffectiveAttribute, getAverageEffectiveAttribute,
   MELEE_WEAPONS, RANGED_WEAPONS, getActiveMeleeWeapons, getActiveRangedWeapons, ALL_MELEE_WEAPONS, ALL_RANGED_WEAPONS,
   WEAPON_RANKS_MIN, WEAPON_RANKS_MAX, WEAPON_RANKS_ROWS, WEAPON_RANKS_PER_ROW,
-  FOCUS_WEAPON_COUNTS, getFocusWeaponCapacity, isWeaponFocusEligible,
+  getFocusWeaponCapacity, isWeaponFocusEligible,
   rollFocusWeapons, addFocusWeapon, removeFocusWeapon,
   isWeaponEligibleForClass, weaponMatchesCharacter, getWeaponRate, getWeaponAutoMinRank,
   getWeaponClassSpend, getWeaponSpentRank, getWeaponEffectiveRank, getWeaponTarget, toggleWeaponRankForClass,
-  SKILLS, SKILL_RANKS_MIN, SKILL_RANKS_MAX, SKILL_RANKS_ROWS, SKILL_RANKS_PER_ROW,
+  SKILLS, PSYCHIC_POWERS, SKILL_RANKS_MIN, SKILL_RANKS_MAX, SKILL_RANKS_ROWS, SKILL_RANKS_PER_ROW,
   FANTASY_SKILLS, getActiveSkills, ALL_SKILLS,
   isSkillEligibleForClass, isSkillGeneral, isSkillForRace, pickSpendableClass,
   skillMatchesCharacter, getSkillRate, getSkillAutoMinRank,
@@ -2399,16 +4099,17 @@ window.VennRPG = {
   getClassWeaponPointsAvailable, getClassSkillPointsAvailable,
   getSkillPointsAvailable, hasUnspentClassDots, setClassDotsForClass,
   MULTI_VALUE_DELIMITER, parseMultiValue,
-  COMBAT_STAT_GROUP, getMeleeBaseAttack, getRangedBaseAttack, getBaseDefense, getArmoredDefenseTotal,
-  CASTING_STAT_GROUP, getMagicCasting, getMiracleCasting, VITALS_STATS,
-  STAMINA_COST_ITEMS, getStaminaCostTotal,
-  EQUIPMENT, EQUIPMENT_TYPES, getEquipmentQuantity, getEquipmentOwnedEntries,
+  COMBAT_STAT_GROUP, getMeleeBaseAttack, getRangedBaseAttack, getBaseDefense,
+  CASTING_STAT_GROUP, getMagicCasting, getMiracleCasting, getPsychicAbility, VITALS_STATS,
+  STAMINA_COST_ITEMS, getStaminaCostTotal, getEquippedArmorStaminaCost,
+  EQUIPMENT, EQUIPMENT_TYPES, GENRE_EQUIPMENT, getActiveEquipment, getEquipmentQuantity, getEquipmentOwnedEntries,
+  GENRE_ARMOR, getActiveArmor,
   SMALL_ARMS, SMALL_ARMS_MODS, MILITARY_VEHICLES,
   isEquipmentEquipped, isEquipmentCarried, setEquipmentEquipped, setEquipmentCarried,
   getWornEquipmentEntries, getCarriedEquipmentWeightTotal,
   getWornWeapons,
   addEquipmentItem, removeEquipmentItem, getEquipmentSpentGT,
-  COINAGE, getWealthInGT, spendFromCoinage, refundToCoinage,
+  COINAGE, FANTASY_COINAGE, MODERN_COINAGE, getActiveCoinage, getWealthInGT, spendFromCoinage, refundToCoinage,
   rollAttribute, createDefaultCharacter, clamp, roundUp,
 };
 

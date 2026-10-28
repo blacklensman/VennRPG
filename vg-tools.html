@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VennRPG — Venn Guide Data Tools</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="src/style.css">
+<link rel="stylesheet" href="src/vg-tools.css">
+</head>
+<body>
+<div class="vg-shell">
+
+  <header class="vg-header">
+    <h1>Venn Guide Data Tools</h1>
+    <p class="vg-sub">Edit the CSV data files that feed the character-building UI, grouped by genre.</p>
+    <div class="vg-load-row">
+      <button id="loadFolderBtn" type="button">Load data/ folder…</button>
+      <button id="enableDirectSaveBtn" type="button" class="secondary">Enable direct save to data/…</button>
+      <button id="vgSaveAllBtn" type="button">Save All</button>
+      <button id="vgPublishBtn" type="button" class="secondary">Publish Game Set</button>
+      <label class="vg-genre-select-label">
+        Genre
+        <select id="vgGenreSelect"></select>
+      </label>
+      <button id="vgSaveTechLevelsBtn" type="button" hidden>Save tech_levels.csv</button>
+      <span id="loadStatus" class="vg-load-status">No data loaded yet.</span>
+    </div>
+    <div class="vg-toggle-row">
+      <fieldset class="magic-field">
+        <legend>Magic</legend>
+        <label><input type="radio" name="vgMagicEnabled" id="vgMagicEnabledOn" value="on"> On</label>
+        <label><input type="radio" name="vgMagicEnabled" id="vgMagicEnabledOff" value="off" checked> Off</label>
+      </fieldset>
+      <fieldset class="magic-field">
+        <legend>Cyber</legend>
+        <label><input type="radio" name="vgCyberEnabled" id="vgCyberEnabledOn" value="on"> On</label>
+        <label><input type="radio" name="vgCyberEnabled" id="vgCyberEnabledOff" value="off" checked> Off</label>
+      </fieldset>
+      <fieldset class="magic-field">
+        <legend>Mutant</legend>
+        <label><input type="radio" name="vgMutantEnabled" id="vgMutantEnabledOn" value="on"> On</label>
+        <label><input type="radio" name="vgMutantEnabled" id="vgMutantEnabledOff" value="off" checked> Off</label>
+      </fieldset>
+      <fieldset class="magic-field">
+        <legend>Psychic</legend>
+        <label><input type="radio" name="vgPsychicEnabled" id="vgPsychicEnabledOn" value="on"> On</label>
+        <label><input type="radio" name="vgPsychicEnabled" id="vgPsychicEnabledOff" value="off" checked> Off</label>
+      </fieldset>
+    </div>
+    <div id="vgNewGenreForm" class="vg-new-genre-form" hidden></div>
+    <p class="vg-note">
+      "Load data/ folder…" reads every CSV in your local <code>data/</code> directory at once (nothing leaves your
+      browser) — every genre's files load together, so switching the Genre selector above never needs a reload.
+      Each tab shows only the selected genre's file(s) (a tab with no per-genre split, like Psychic, is unaffected
+      by this selector). Each section has its own Save button, which writes 3 files, in order: 2 backup copies of
+      the file exactly as it was before you loaded it (<code>name.bak1.csv</code> / <code>name.bak2.csv</code>),
+      then the actual updated file. "Enable direct save to data/…" lets you grant this page write access to your
+      <code>data/</code> folder (a one-time browser permission prompt) so Save writes all 3 files straight there —
+      no manual moving. If your browser doesn't support that (or you skip it — Safari and Firefox never offer
+      it, only Chrome/Edge/Brave/Opera do), Save falls back to 3 ordinary downloads instead — move the backups
+      into your backup directory and the real file into <code>data/</code>, replacing the original, by hand.
+      "Save All" saves every changed file across every genre and tab in one click: with direct save enabled it
+      just writes them all straight to disk; otherwise, instead of a pile of separate downloads, it bundles
+      every changed file (plus its 2 backups) into one <code>vg-tools-save-all.zip</code> with a
+      <code>data/</code> folder and a <code>backups/</code> folder inside, ready to drop into place. The
+      Magic/Cyber/Mutant/Psychic toggles above show and hide that system's tab for the selected genre, and
+      reflect/edit that genre's row(s) in <code>tech_levels.csv</code> — flip one and use "Save tech_levels.csv"
+      (or "Save All") to write that change to disk. <strong>None of the above reaches the character builder
+      on its own</strong> — Save/Save All only persist your own CSV editing session. "Publish Game Set" is the
+      separate, deliberate step that does: it bundles everything currently loaded (every genre, every tab,
+      <code>tech_levels.csv</code>, and the current genre list — even a genre created or discovered this
+      session) into one <code>gameset.json</code>, written or downloaded the same way as any other save. The
+      character builder loads whatever <code>gameset.json</code> it can fetch at startup, so a genre or change
+      doesn't reach players until you click Publish — you can keep editing/saving privately without it showing
+      up for anyone until you're ready.
+    </p>
+  </header>
+
+  <nav class="vg-tabs" id="vgTabs"></nav>
+
+  <main class="vg-tabpanels" id="vgTabPanels"></main>
+
+</div>
+
+<script src="src/vg-tools.js"></script>
+</body>
+</html>

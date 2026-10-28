@@ -2,11 +2,11 @@
 
 const {
   ATTRIBUTES, ATTRIBUTE_MIN, ATTRIBUTE_MAX,
-  CLASSES, CLASS_DOTS_MIN, CLASS_DOTS_MAX, CLASS_DOTS_ROWS, CLASS_DOTS_PER_ROW,
-  getDefyPercent, getDefyValue, DEFY_KEY_ATTRIBUTES,
-  GENRES, GENRE_BASE_TL,
-  RACE_NAMES, getRaceAttributeMod, getEffectiveAttribute,
-  MELEE_WEAPONS, RANGED_WEAPONS, ALL_MELEE_WEAPONS, ALL_RANGED_WEAPONS,
+  CLASSES, getActiveClasses, CLASS_DOTS_MIN, CLASS_DOTS_MAX, CLASS_DOTS_ROWS, CLASS_DOTS_PER_ROW,
+  getDefyPercent, getDefyValue, getExpertiseEntry,
+  TECH_LEVELS, parseTechLevels, getAvailableTechLevels, resolveCatalogGenre, applyGameSet,
+  getRaceNamesForGenre, getRaceAttributeMod, getEffectiveAttribute,
+  MELEE_WEAPONS, RANGED_WEAPONS, ALL_MELEE_WEAPONS, ALL_RANGED_WEAPONS, getActiveMeleeWeapons, getActiveRangedWeapons,
   WEAPON_RANKS_MIN, WEAPON_RANKS_MAX, WEAPON_RANKS_ROWS, WEAPON_RANKS_PER_ROW,
   getFocusWeaponCapacity, isWeaponFocusEligible, rollFocusWeapons, addFocusWeapon, removeFocusWeapon,
   isWeaponEligibleForClass, weaponMatchesCharacter, getWeaponRate,
@@ -27,15 +27,15 @@ const {
   getClassWeaponPointsTotal, getClassSkillPointsTotal,
   getClassWeaponPointsAvailable, getClassSkillPointsAvailable,
   getSkillPointsAvailable, hasUnspentClassDots, setClassDotsForClass,
-  COMBAT_STAT_GROUP, getBaseDefense, getArmoredDefenseTotal, CASTING_STAT_GROUP, VITALS_STATS,
-  STAMINA_COST_ITEMS, getStaminaCostTotal,
-  EQUIPMENT, EQUIPMENT_TYPES, getEquipmentQuantity, getEquipmentOwnedEntries,
-  SMALL_ARMS, SMALL_ARMS_MODS, MILITARY_VEHICLES,
+  COMBAT_STAT_GROUP, CASTING_STAT_GROUP, VITALS_STATS,
+  STAMINA_COST_ITEMS, getStaminaCostTotal, getEquippedArmorStaminaCost,
+  EQUIPMENT_TYPES, getActiveEquipment, getEquipmentQuantity, getEquipmentOwnedEntries, getActiveArmor,
+  SMALL_ARMS,
   isEquipmentEquipped, isEquipmentCarried, setEquipmentEquipped, setEquipmentCarried,
   getWornEquipmentEntries, getCarriedEquipmentWeightTotal,
   getWornWeapons,
   addEquipmentItem, removeEquipmentItem, getEquipmentSpentGT,
-  COINAGE, getWealthInGT, spendFromCoinage, refundToCoinage,
+  COINAGE, getActiveCoinage, getWealthInGT, spendFromCoinage, refundToCoinage,
   rollAttribute, createDefaultCharacter, clamp, roundUp,
 } = window.VennRPG;
 
@@ -76,9 +76,14 @@ const el = {
   charName: document.getElementById('charName'),
   raceSelect: document.getElementById('raceSelect'),
   focusSelect: document.getElementById('focusSelect'),
-  genreSelect: document.getElementById('genreSelect'),
   magicEnabledOn: document.getElementById('magicEnabledOn'),
   magicEnabledOff: document.getElementById('magicEnabledOff'),
+  cyberEnabledOn: document.getElementById('cyberEnabledOn'),
+  cyberEnabledOff: document.getElementById('cyberEnabledOff'),
+  psychicEnabledOn: document.getElementById('psychicEnabledOn'),
+  psychicEnabledOff: document.getElementById('psychicEnabledOff'),
+  mutantEnabledOn: document.getElementById('mutantEnabledOn'),
+  mutantEnabledOff: document.getElementById('mutantEnabledOff'),
   rollAllBtn: document.getElementById('rollAllBtn'),
   attributesList: document.getElementById('attributesList'),
   combatStatsList: document.getElementById('combatStatsList'),
@@ -136,9 +141,7 @@ const el = {
   equipmentWealthSummary: document.getElementById('equipmentWealthSummary'),
   equipmentTabs: document.getElementById('equipmentTabs'),
   equipmentModalList: document.getElementById('equipmentModalList'),
-  smallArmsBody: document.getElementById('smallArmsBody'),
-  smallArmsModsBody: document.getElementById('smallArmsModsBody'),
-  militaryVehiclesBody: document.getElementById('militaryVehiclesBody'),
+  techLevelSelect: document.getElementById('techLevelSelect'),
   equippedBody: document.getElementById('equippedBody'),
   equippedCollapseToggle: document.getElementById('equippedCollapseToggle'),
   equippedWeightSummary: document.getElementById('equippedWeightSummary'),
@@ -152,7 +155,7 @@ const el = {
 
 function renderRaceOptions() {
   el.raceSelect.innerHTML = '';
-  RACE_NAMES.forEach((race) => {
+  getRaceNamesForGenre(character.genre).forEach((race) => {
     const opt = document.createElement('option');
     opt.value = race;
     opt.textContent = race;
@@ -163,7 +166,7 @@ function renderRaceOptions() {
 
 function renderFocusOptions() {
   el.focusSelect.innerHTML = '';
-  CLASSES.forEach((cls) => {
+  getActiveClasses(character.genre).forEach((cls) => {
     const opt = document.createElement('option');
     opt.value = cls;
     opt.textContent = cls;
@@ -172,20 +175,52 @@ function renderFocusOptions() {
   el.focusSelect.value = character.focus;
 }
 
-function renderGenreOptions() {
-  el.genreSelect.innerHTML = '';
-  GENRES.forEach((genre) => {
+// Several tiers can share the same TL number now (e.g. three separate rows
+// all at TL 6 — one per genre label — rather than one row listing all
+// three), so `tier.tl` alone no longer uniquely identifies a row. Looks up
+// the tier matching both techLevel and genreLabel when possible, falling
+// back to the first tier at that TL (and finally TECH_LEVELS[0]) so a
+// stale/missing genreLabel never leaves this with nothing.
+function findTechLevelTier(techLevel, genreLabel) {
+  const matches = TECH_LEVELS.filter((t) => t.tl === techLevel);
+  if (matches.length === 0) return TECH_LEVELS[0];
+  return matches.find((t) => t.genreLabels.includes(genreLabel)) || matches[0];
+}
+
+function renderTechLevelOptions() {
+  el.techLevelSelect.innerHTML = '';
+  const tiers = getAvailableTechLevels();
+  // The option's value is its index in this list, not tier.tl — several
+  // tiers can share the same TL number (see findTechLevelTier), so the TL
+  // number alone can't be relied on to pick a unique option.
+  tiers.forEach((tier, index) => {
     const opt = document.createElement('option');
-    opt.value = genre;
-    opt.textContent = genre;
-    el.genreSelect.appendChild(opt);
+    opt.value = String(index);
+    opt.textContent = `${tier.tl} - ${tier.genreLabels.join(' / ')}`;
+    el.techLevelSelect.appendChild(opt);
   });
-  el.genreSelect.value = character.genre;
+  const selectedIndex = tiers.findIndex((t) => t.tl === character.techLevel && t.genreLabels.includes(character.genreLabel));
+  el.techLevelSelect.value = String(selectedIndex >= 0 ? selectedIndex : 0);
 }
 
 function renderMagicToggle() {
   el.magicEnabledOn.checked = character.magicEnabled === true;
   el.magicEnabledOff.checked = character.magicEnabled !== true;
+}
+
+function renderPsychicToggle() {
+  el.psychicEnabledOn.checked = character.psychicEnabled === true;
+  el.psychicEnabledOff.checked = character.psychicEnabled !== true;
+}
+
+function renderCyberToggle() {
+  el.cyberEnabledOn.checked = character.cyberEnabled === true;
+  el.cyberEnabledOff.checked = character.cyberEnabled !== true;
+}
+
+function renderMutantToggle() {
+  el.mutantEnabledOn.checked = character.mutantEnabled === true;
+  el.mutantEnabledOff.checked = character.mutantEnabled !== true;
 }
 
 function renderAttributes() {
@@ -235,10 +270,10 @@ function renderAttributes() {
       inputWrap.appendChild(modMark);
     }
 
-    const defyPercent = getDefyPercent(character.focus, attr);
+    const defyPercent = getDefyPercent(character, attr);
     const defy = document.createElement('span');
     defy.className = 'attr-defy';
-    defy.textContent = `${getDefyValue(character.focus, attr, effectiveValue)}`;
+    defy.textContent = `${getDefyValue(character, attr, effectiveValue)}`;
     defy.title = `Defy = ${effectiveValue} * ${defyPercent}%`;
 
     row.appendChild(label);
@@ -271,51 +306,13 @@ function renderCombatStats() {
   el.combatStatsList.innerHTML = '';
   COMBAT_STAT_GROUP.stats.forEach((stat) => appendDerivedRow(el.combatStatsList, stat));
 
-  // Armored Defense: Base Defense (read-only) + editable Armor Value = Total.
-  const armoredRow = document.createElement('div');
-  armoredRow.className = 'derived-row armored-defense-row';
-  armoredRow.title = 'Base Defense + Armor Value';
-
-  const armoredLabel = document.createElement('span');
-  armoredLabel.className = 'derived-name';
-  armoredLabel.textContent = 'Armored Defense';
-
-  const armoredCalc = document.createElement('span');
-  armoredCalc.className = 'armored-defense-calc';
-
-  const baseField = document.createElement('span');
-  baseField.className = 'vitals-base';
-  baseField.textContent = `${getBaseDefense(character)}`;
-
-  const armorInput = document.createElement('input');
-  armorInput.type = 'number';
-  armorInput.className = 'vitals-input';
-  armorInput.value = character.armorValue;
-  armorInput.title = 'Armor Value';
-  armorInput.addEventListener('change', () => {
-    character.armorValue = parseInt(armorInput.value, 10) || 0;
-    renderCombatStats();
-  });
-
-  const armoredTotal = document.createElement('span');
-  armoredTotal.className = 'derived-value';
-  armoredTotal.textContent = `${getArmoredDefenseTotal(character)}`;
-
-  armoredCalc.appendChild(baseField);
-  armoredCalc.appendChild(document.createTextNode('+'));
-  armoredCalc.appendChild(armorInput);
-  armoredCalc.appendChild(document.createTextNode('='));
-  armoredCalc.appendChild(armoredTotal);
-
-  armoredRow.appendChild(armoredLabel);
-  armoredRow.appendChild(armoredCalc);
-  el.combatStatsList.appendChild(armoredRow);
-
   const spacer = document.createElement('div');
   spacer.className = 'combat-stats-spacer';
   el.combatStatsList.appendChild(spacer);
 
-  CASTING_STAT_GROUP.stats.forEach((stat) => appendDerivedRow(el.combatStatsList, stat));
+  CASTING_STAT_GROUP.stats
+    .filter((stat) => !stat.requiresMagic || character.magicEnabled)
+    .forEach((stat) => appendDerivedRow(el.combatStatsList, stat));
 }
 
 // Trims float noise (e.g. 12.000000000000002 from repeated 0.1/0.01 coin
@@ -341,8 +338,10 @@ function formatWeight(n) {
   return rounded.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
 }
 
-// Coinage is a simple player-managed wallet — free-entry amounts, not tied
-// to any point economy — that funds Equipment purchases below.
+// Wealth is a simple player-managed wallet — free-entry amounts, not tied
+// to any point economy — that funds Equipment purchases below. Which coins
+// are shown switches on Tech Level: the Fantasy 6-coin set at TL <= 3, or
+// Dollars/Credit/Other at TL > 3 (see getActiveCoinage()).
 function renderCoinage() {
   el.coinageList.innerHTML = '';
 
@@ -351,13 +350,13 @@ function renderCoinage() {
   const otherColumn = document.createElement('div');
   otherColumn.className = 'coinage-column';
 
-  COINAGE.forEach((coin) => {
+  getActiveCoinage(character).forEach((coin) => {
     const row = document.createElement('div');
     row.className = 'coinage-row';
 
     const label = document.createElement('span');
     label.className = 'coinage-label';
-    label.textContent = `${coin.name} (${coin.id})`;
+    label.textContent = coin.id === coin.name.toLowerCase() ? coin.name : `${coin.name} (${coin.id})`;
 
     const input = document.createElement('input');
     input.type = 'number';
@@ -423,16 +422,66 @@ function renderEquipmentPanel() {
   });
 }
 
-// The purchase popup: tabs by fantasy_eq.csv category, a running wealth/
-// running inventory value (spending/refunding actually deducts/adds coins
-// on the main page's Coinage section), and a +/- stepper per item.
+// Small Arms isn't a purchasable fantasy_eq.csv category — it's plain
+// reference data (data/small_arms.csv has no cost/weight) gated by the Tech
+// Level selector, surfaced as one more tab on the Buy Equipment popup rather
+// than a purchase flow of its own.
+const SMALL_ARMS_TAB = 'Small Arms';
+
+function renderSmallArmsReferenceTable() {
+  const wrap = document.createElement('div');
+  wrap.className = 'weapons-table-wrap';
+  const table = document.createElement('table');
+  table.className = 'weapons-table';
+  const columns = [
+    ['Maker', 'maker'], ['Type', 'type'], ['Designation', 'designation'], ['Calibre', 'calibre'],
+    ['MVel (FPS)', 'muzzleVelocity'], ['Energy Transfer', 'energyTransfer'], ['Range Inc (M)', 'rangeInc'],
+    ['Fire Mode', 'fireMode'], ['Mag', 'mag'], ['TL', 'tl'], ['Cost ($)', 'cost'],
+    ['Class', 'weaponClass', 'Common / Restricted / Military'],
+  ];
+  const thead = document.createElement('thead');
+  const headRow = document.createElement('tr');
+  columns.forEach(([label, , title]) => {
+    const th = document.createElement('th');
+    th.textContent = label;
+    if (title) th.title = title;
+    headRow.appendChild(th);
+  });
+  thead.appendChild(headRow);
+  table.appendChild(thead);
+
+  const tbody = document.createElement('tbody');
+  SMALL_ARMS.filter((item) => item.tl <= character.techLevel).forEach((item) => {
+    const tr = document.createElement('tr');
+    columns.forEach(([, key]) => {
+      const td = document.createElement('td');
+      td.textContent = key === 'cost' ? formatGT(item.cost) : item[key];
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  table.appendChild(tbody);
+  wrap.appendChild(table);
+  return wrap;
+}
+
+// The purchase popup: tabs by fantasy_eq.csv category (plus a Small Arms
+// reference tab), a running wealth/running inventory value (spending/
+// refunding actually deducts/adds coins on the main page's Coinage
+// section), and a +/- stepper per purchasable item.
 function renderEquipmentModal() {
   const wealth = getWealthInGT(character);
   const inventoryValue = getEquipmentSpentGT(character);
   el.equipmentWealthSummary.textContent = `Wealth: ${formatGT(wealth)} GT — Inventory value: ${formatGT(inventoryValue)} GT`;
 
+  const genreEquipment = getActiveEquipment(character.genre);
+  const genreEquipmentTypes = [...new Set(genreEquipment.map((e) => e.type))];
+  if (activeEquipmentTab !== SMALL_ARMS_TAB && !genreEquipmentTypes.includes(activeEquipmentTab)) {
+    activeEquipmentTab = genreEquipmentTypes[0];
+  }
+
   el.equipmentTabs.innerHTML = '';
-  EQUIPMENT_TYPES.forEach((type) => {
+  [...genreEquipmentTypes, SMALL_ARMS_TAB].forEach((type) => {
     const tab = document.createElement('button');
     tab.type = 'button';
     tab.className = 'skills-tab' + (type === activeEquipmentTab ? ' active' : '');
@@ -445,7 +494,11 @@ function renderEquipmentModal() {
   });
 
   el.equipmentModalList.innerHTML = '';
-  EQUIPMENT.filter((item) => item.type === activeEquipmentTab).forEach((item) => {
+  if (activeEquipmentTab === SMALL_ARMS_TAB) {
+    el.equipmentModalList.appendChild(renderSmallArmsReferenceTable());
+    return;
+  }
+  genreEquipment.filter((item) => item.type === activeEquipmentTab).forEach((item) => {
     const row = document.createElement('div');
     row.className = 'equipment-item-row';
 
@@ -459,7 +512,12 @@ function renderEquipmentModal() {
     name.textContent = item.name;
     const cost = document.createElement('span');
     cost.className = 'equipment-item-cost';
-    cost.textContent = `${formatGT(item.cost)} GT`;
+    // General equipment shows a Modern ($) price instead of the Fantasy GT
+    // price once Tech Level > 3 — same purchasing power either way (spend/
+    // refund always deal in GT; modernCost is a x20 display-only reskin).
+    cost.textContent = (item.type === 'general' && character.techLevel > 3)
+      ? `$${formatGT(item.modernCost)}`
+      : `${formatGT(item.cost)} GT`;
     const weight = document.createElement('span');
     weight.className = 'equipment-item-weight';
     weight.textContent = `${item.weight} lb`;
@@ -488,6 +546,7 @@ function renderEquipmentModal() {
       renderEquipmentModal();
       renderEquipmentPanel();
       renderEquippedPanel();
+      renderVitals();
     });
 
     const qtyValue = document.createElement('span');
@@ -524,6 +583,7 @@ function renderEquipmentModal() {
       setEquipmentEquipped(character, item, equippedCheckbox.checked);
       renderEquipmentPanel();
       renderEquippedPanel();
+      renderVitals();
     });
     equippedLabel.appendChild(equippedCheckbox);
     equippedLabel.appendChild(document.createTextNode('Equipped'));
@@ -562,7 +622,7 @@ function renderEquipmentModal() {
 
 function buildEquippedWeaponRow(weapon, category) {
   const row = document.createElement('tr');
-  const equipmentItem = EQUIPMENT.find((e) => e.type === 'weapons' && e.name === weapon.name);
+  const equipmentItem = getActiveEquipment(character.genre).find((e) => e.type === 'weapons' && e.name === weapon.name);
 
   const nameCell = document.createElement('td');
   nameCell.className = 'weapon-name-cell';
@@ -591,6 +651,11 @@ function buildEquippedWeaponRow(weapon, category) {
   const eCell = document.createElement('td');
   eCell.textContent = weapon.energy;
 
+  // No ballistic_dmg column exists yet on melee_weapons.csv/ranged_weapons.csv
+  // (mirrors armor.csv's S/I/P/E/B columns on the Armor table above, which
+  // are the same reserved-for-future-expansion empty placeholders).
+  const bCell = document.createElement('td');
+
   const conditionCell = document.createElement('td');
   conditionCell.className = 'equipped-condition-cell';
   conditionCell.textContent = equipmentItem
@@ -606,6 +671,7 @@ function buildEquippedWeaponRow(weapon, category) {
   row.appendChild(sCell);
   row.appendChild(pCell);
   row.appendChild(eCell);
+  row.appendChild(bCell);
   row.appendChild(conditionCell);
   return row;
 }
@@ -618,7 +684,7 @@ function renderEquippedWeaponsTable(tbody, category) {
     const row = document.createElement('tr');
     row.className = 'equipped-empty-row';
     const cell = document.createElement('td');
-    cell.colSpan = 10;
+    cell.colSpan = 11;
     cell.textContent = `No ${category} weapons equipped or carried.`;
     row.appendChild(cell);
     tbody.appendChild(row);
@@ -643,6 +709,13 @@ function renderEquippedArmorTable() {
   entries.forEach(({ item, quantity, equipped, carried }) => {
     const row = document.createElement('tr');
 
+    // Equipment decides what's buyable (name/cost/weight/TL); the matching
+    // data/{genre}_armor.csv row — looked up by name, same pattern as the
+    // Equipped Weapons tables resolving a bought weapon against
+    // MELEE_WEAPONS/RANGED_WEAPONS — has the actual protection values and
+    // stamina cost.
+    const armorDetail = getActiveArmor(character.genre).find((a) => a.name === item.name);
+
     const nameCell = document.createElement('td');
     nameCell.textContent = item.name;
     const descCell = document.createElement('td');
@@ -651,13 +724,18 @@ function renderEquippedArmorTable() {
     qtyCell.textContent = String(quantity);
     const weightCell = document.createElement('td');
     weightCell.textContent = `${formatWeight(item.weight * quantity)} lb`;
-    const costCell = document.createElement('td');
-    costCell.textContent = `${formatGT(item.cost * quantity)} GT`;
+    const staminaCell = document.createElement('td');
+    staminaCell.textContent = armorDetail ? String(armorDetail.staminaCost) : '';
     const slashCell = document.createElement('td');
+    slashCell.textContent = armorDetail ? String(armorDetail.slash) : '';
     const impactCell = document.createElement('td');
+    impactCell.textContent = armorDetail ? String(armorDetail.impact) : '';
     const pierceCell = document.createElement('td');
+    pierceCell.textContent = armorDetail ? String(armorDetail.pierce) : '';
     const energyCell = document.createElement('td');
+    energyCell.textContent = armorDetail ? String(armorDetail.energy) : '';
     const ballisticCell = document.createElement('td');
+    ballisticCell.textContent = armorDetail ? String(armorDetail.ballistic) : '';
     const conditionCell = document.createElement('td');
     conditionCell.className = 'equipped-condition-cell';
     conditionCell.textContent = conditionLabel(equipped, carried);
@@ -666,7 +744,7 @@ function renderEquippedArmorTable() {
     row.appendChild(descCell);
     row.appendChild(qtyCell);
     row.appendChild(weightCell);
-    row.appendChild(costCell);
+    row.appendChild(staminaCell);
     row.appendChild(slashCell);
     row.appendChild(impactCell);
     row.appendChild(pierceCell);
@@ -708,42 +786,6 @@ function renderEquippedGeneralTable() {
     row.appendChild(costCell);
     el.equippedGeneralBody.appendChild(row);
   });
-}
-
-// Small Arms / Small Arms Modifications / Military Vehicles: reference
-// tables for a future modern/military genre expansion. The panels they
-// populate (#smallArmsPanel, #smallArmsModsPanel, #militaryVehiclesPanel)
-// are permanently `hidden` in index.html — not shown to players, and these
-// items aren't purchasable by any class. Populated once below purely so the
-// table markup is real and ready for when the feature is turned on.
-function renderReferenceTable(tbody, rows, columns) {
-  tbody.innerHTML = '';
-  rows.forEach((row) => {
-    const tr = document.createElement('tr');
-    columns.forEach((key) => {
-      const td = document.createElement('td');
-      td.textContent = row[key];
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  });
-}
-
-function renderSmallArmsTable() {
-  renderReferenceTable(el.smallArmsBody, SMALL_ARMS,
-    ['maker', 'type', 'designation', 'calibre', 'muzzleVelocity', 'energyTransfer', 'rangeInc', 'fireMode', 'tl']);
-}
-
-function renderSmallArmsModsTable() {
-  renderReferenceTable(el.smallArmsModsBody, SMALL_ARMS_MODS,
-    ['kind', 'condition', 'chance', 'etOrArmor', 'other', 'tl']);
-}
-
-function renderMilitaryVehiclesTable() {
-  renderReferenceTable(el.militaryVehiclesBody, MILITARY_VEHICLES, [
-    'maker', 'type', 'designation', 'country', 'crew', 'armorFront', 'armorSide',
-    'primaryWeapon', 'calibre', 'energyTransfer', 'energyType', 'rangeInc', 'fireMode', 'tl',
-  ]);
 }
 
 function renderEquippedPanel() {
@@ -800,7 +842,7 @@ function renderTabBar(container, tabNames, getActive, setActive, onSelect) {
 
 // Points summary line for a resolved spending class (which may differ from
 // the displayed tab for General/Race, since those aren't a single class).
-// Weapon dots and Skill dots are two separate pools now (a Wiz/Priest
+// Weapon dots and Skill dots are two separate pools now (a Adept/Shepherd
 // Spell:/Miracle: Skill spends from the Weapon pool, everything else from
 // the Skill pool) — shown side by side since a Skills-panel tab can contain
 // both kinds of entry at once.
@@ -837,17 +879,22 @@ function createRankDotButton(dotIndex, ctx) {
   return dotBtn;
 }
 
-// Shared rank-dot grid (2 rows of 10) used for Skills (and, for ranks 2+,
-// Weapon skills — rank 1 on a weapon has its own render path, see
-// renderWeaponRankDots, since it can be a free Focus-drawn slot).
+// Shared rank-dot grid (2 rows of 10, by default) used for Skills (and, for
+// ranks 2+, Weapon skills — rank 1 on a weapon has its own render path, see
+// renderWeaponRankDots, since it can be a free Focus-drawn slot). An
+// optional `maxDots` (a Psychic Power's own `dots` cap, below the usual
+// 20-dot grid) stops rendering dot buttons past that count instead of
+// filling out the full rows*perRow grid.
 function renderRankDots(parent, opts) {
-  const { rows, perRow, spentTotal, ownSpend } = opts;
+  const { rows, perRow, spentTotal, ownSpend, maxDots } = opts;
   const otherSpend = spentTotal - ownSpend;
+  const totalDots = maxDots != null ? maxDots : rows * perRow;
   for (let r = 0; r < rows; r += 1) {
     const grid = document.createElement('div');
     grid.className = 'dots-grid';
     for (let c = 0; c < perRow; c += 1) {
       const dotIndex = r * perRow + c + 1;
+      if (dotIndex > totalDots) continue;
       grid.appendChild(createRankDotButton(dotIndex, { ...opts, otherSpend }));
     }
     parent.appendChild(grid);
@@ -867,7 +914,7 @@ function renderSkillBox(container, skill, spendClass) {
   const name = document.createElement('span');
   name.className = 'skill-name';
   name.textContent = skill.name;
-  name.title = skill.description;
+  name.title = skill.minTl > 0 ? `TL ${skill.minTl}+ ${skill.description}` : skill.description;
   nameWrap.appendChild(name);
 
   if (skill.attribute.length > 0) {
@@ -888,9 +935,15 @@ function renderSkillBox(container, skill, spendClass) {
   header.appendChild(target);
   box.appendChild(header);
 
+  // A Psychic Power caps its buyable dots at its own `dots` column
+  // (skill.maxRank) instead of the usual 20-dot grid — size the grid down
+  // to just enough rows for that cap instead of always rendering 2 full
+  // rows.
+  const rows = skill.maxRank != null ? Math.max(1, Math.ceil(skill.maxRank / SKILL_RANKS_PER_ROW)) : SKILL_RANKS_ROWS;
   renderRankDots(box, {
-    rows: SKILL_RANKS_ROWS,
+    rows,
     perRow: SKILL_RANKS_PER_ROW,
+    maxDots: skill.maxRank,
     effectiveRank: getSkillEffectiveRank(character, skill),
     autoMin: getSkillAutoMinRank(character, skill),
     spentTotal: getSkillSpentRank(character, skill),
@@ -910,7 +963,6 @@ function renderSkillBox(container, skill, spendClass) {
 }
 
 const SKILLS_EXTRA_TABS = ['General', 'Race'];
-const SKILLS_TAB_NAMES = CLASSES.concat(SKILLS_EXTRA_TABS);
 
 function byName(a, b) {
   return a.name.localeCompare(b.name);
@@ -925,7 +977,7 @@ function byDotsThenName(a, b) {
 function renderSkills() {
   renderTabBar(
     el.skillsTabs,
-    SKILLS_TAB_NAMES,
+    getActiveClasses(character.genre).concat(SKILLS_EXTRA_TABS),
     () => activeSkillsTab,
     (name) => { activeSkillsTab = name; },
     renderSkills
@@ -934,9 +986,9 @@ function renderSkills() {
   el.skillsList.innerHTML = '';
   el.skillsList.classList.remove('skills-list-vertical');
 
-  const activeSkills = getActiveSkills(character.genre, character.magicEnabled);
+  const activeSkills = getActiveSkills(character.genre, character.magicEnabled, character.psychicEnabled);
 
-  if (CLASSES.includes(activeSkillsTab)) {
+  if (!SKILLS_EXTRA_TABS.includes(activeSkillsTab)) {
     renderPointsSummary(el.skillsSummary, activeSkillsTab);
     const eligible = activeSkills.filter((skill) => isSkillEligibleForClass(character, skill, activeSkillsTab)).sort(byName);
     eligible.forEach((skill) => renderSkillBox(el.skillsList, skill, activeSkillsTab));
@@ -967,7 +1019,7 @@ function formatWeaponMeta(weapon, category) {
 // point-buy dot.
 function renderWeaponRankDots(parent, weapon, category) {
   const isDrawn = character.focusWeapons[category].includes(weapon.name);
-  const hasRoom = character.focusWeapons[category].length < getFocusWeaponCapacity(character.focus, category);
+  const hasRoom = character.focusWeapons[category].length < getFocusWeaponCapacity(character.genre, character.focus, category);
   const spentTotal = getWeaponSpentRank(character, category, weapon.name);
   const canClaimSlot = !isDrawn && hasRoom && spentTotal === 0 && isWeaponFocusEligible(weapon, character.focus);
 
@@ -1112,15 +1164,15 @@ function renderOwnedWeapons() {
 function renderWeapons() {
   renderTabBar(
     el.weaponsTabs,
-    CLASSES,
+    getActiveClasses(character.genre),
     () => activeWeaponsTab,
     (name) => { activeWeaponsTab = name; },
     renderWeapons
   );
   renderPointsSummary(el.weaponsSummary, activeWeaponsTab);
 
-  const meleeCapacity = getFocusWeaponCapacity(character.focus, 'melee');
-  const rangedCapacity = getFocusWeaponCapacity(character.focus, 'ranged');
+  const meleeCapacity = getFocusWeaponCapacity(character.genre, character.focus, 'melee');
+  const rangedCapacity = getFocusWeaponCapacity(character.genre, character.focus, 'ranged');
   el.weaponsFocusSummary.textContent = `${character.focus} starting weapons — `
     + `Melee: ${character.focusWeapons.melee.length}/${meleeCapacity} selected, `
     + `Ranged: ${character.focusWeapons.ranged.length}/${rangedCapacity} selected`;
@@ -1244,7 +1296,7 @@ function renderOwnedSpecials() {
   });
 }
 
-// Shared by Spells (Wiz) and Miracles (Priest): a reference grimoire, not
+// Shared by Spells (Adept) and Miracles (Shepherd): a reference grimoire, not
 // purchased from the shared point pool — each class rank instead grants one
 // learnable-entry slot (see getSlotCount/getLearnedCount/canLearn). The
 // whole panel hides until `hasAccess(character)` is true.
@@ -1262,7 +1314,7 @@ function renderGrimoire(opts) {
   const slots = getSlotCount(character);
   const learnedCount = getLearnedCount(character);
   const bonusSpecialName = className === 'Spell' ? 'Extra Spell' : 'Blessing of Miracles';
-  const rankLabel = className === 'Spell' ? 'Wiz' : 'Priest';
+  const rankLabel = className === 'Spell' ? 'Adept' : 'Shepherd';
   const bonusSpecial = SPECIALS.find((s) => s.name === bonusSpecialName);
   const hasBonus = bonusSpecial && isSpecialOwned(character, bonusSpecial);
   const slotsNote = hasBonus ? `1+ per ${rankLabel} rank, +1 more per rank after ${bonusSpecialName}` : `1 per ${rankLabel} rank`;
@@ -1443,15 +1495,13 @@ function buildStaminaCostRow(item) {
   baseField.className = 'vitals-base';
   baseField.textContent = `${item.base}`;
 
-  const armorInput = document.createElement('input');
-  armorInput.type = 'number';
-  armorInput.className = 'vitals-input';
-  armorInput.value = state.armor;
-  armorInput.title = 'Armor';
-  armorInput.addEventListener('change', () => {
-    state.armor = parseInt(armorInput.value, 10) || 0;
-    renderVitals();
-  });
+  // Derived, not manual — the stamina cost of whatever armor/shield is
+  // currently Equipped, same across every row (see
+  // getEquippedArmorStaminaCost).
+  const armorField = document.createElement('span');
+  armorField.className = 'vitals-base';
+  armorField.title = 'Armor (from currently Equipped armor/shields)';
+  armorField.textContent = `${getEquippedArmorStaminaCost(character)}`;
 
   const miscInput = document.createElement('input');
   miscInput.type = 'number';
@@ -1470,7 +1520,7 @@ function buildStaminaCostRow(item) {
   row.appendChild(label);
   row.appendChild(baseField);
   row.appendChild(document.createTextNode('+'));
-  row.appendChild(armorInput);
+  row.appendChild(armorField);
   row.appendChild(document.createTextNode('+'));
   row.appendChild(miscInput);
   row.appendChild(totalField);
@@ -1511,7 +1561,7 @@ function renderVitals() {
 }
 
 function orderedClasses() {
-  const rest = CLASSES.filter((c) => c !== character.focus).sort((a, b) => a.localeCompare(b));
+  const rest = getActiveClasses(character.genre).filter((c) => c !== character.focus).sort((a, b) => a.localeCompare(b));
   return [character.focus, ...rest];
 }
 
@@ -1552,15 +1602,15 @@ function renderClasses() {
     // Buying another class rank — in ANY class — is blocked while any class
     // still has an unspent Weapon or Skill dot from a rank already bought.
     const dotsBlocked = hasUnspentClassDots(character);
-    // Wiz/Priest ranks each hold Spell/Miracle slots — normally 1:1, but
+    // Adept/Shepherd ranks each hold Spell/Miracle slots — normally 1:1, but
     // "Extra Spell"/"Blessing of Miracles" add bonus slots for ranks gained
     // after acquiring them, so slot count isn't linear with rank. Simulate
     // the slot count at the candidate target rank rather than a fixed floor.
-    const grimoireLearnedCount = cls === 'Wiz' ? getSpellsLearnedCount(character)
-      : cls === 'Priest' ? getMiraclesLearnedCount(character)
+    const grimoireLearnedCount = cls === 'Adept' ? getSpellsLearnedCount(character)
+      : cls === 'Shepherd' ? getMiraclesLearnedCount(character)
       : 0;
-    const getGrimoireSlotsForRank = cls === 'Wiz' ? (r) => getSpellSlotCountForRank(character, r)
-      : cls === 'Priest' ? (r) => getMiracleSlotCountForRank(character, r)
+    const getGrimoireSlotsForRank = cls === 'Adept' ? (r) => getSpellSlotCountForRank(character, r)
+      : cls === 'Shepherd' ? (r) => getMiracleSlotCountForRank(character, r)
       : () => Infinity;
     for (let row = 0; row < CLASS_DOTS_ROWS; row += 1) {
       const grid = document.createElement('div');
@@ -1583,7 +1633,7 @@ function renderClasses() {
           title = locked
             ? (breaksSpend
               ? `Can't reduce ${cls} below ${minRanksForSpend} rank${minRanksForSpend === 1 ? '' : 's'} while ${weaponUsed} weapon dot${weaponUsed === 1 ? '' : 's'} and ${skillUsed} skill dot${skillUsed === 1 ? '' : 's'} are spent`
-              : `Can't reduce ${cls} to ${targetValue} rank${targetValue === 1 ? '' : 's'} while ${grimoireLearnedCount} ${cls === 'Wiz' ? 'spell' : 'miracle'}${grimoireLearnedCount === 1 ? ' is' : 's are'} known`)
+              : `Can't reduce ${cls} to ${targetValue} rank${targetValue === 1 ? '' : 's'} while ${grimoireLearnedCount} ${cls === 'Adept' ? 'spell' : 'miracle'}${grimoireLearnedCount === 1 ? ' is' : 's are'} known`)
             : `Set ${cls} to ${dotIndex}`;
         } else if (dotIndex === current + 1) {
           // Class ranks are only ever bought one at a time — see
@@ -1609,7 +1659,7 @@ function renderClasses() {
           }
           refreshPointsPanels();
           if (grew) {
-            const scrollTarget = cls === 'Wiz' ? el.spellsPanel : cls === 'Priest' ? el.miraclesPanel : el.skillsPanel;
+            const scrollTarget = cls === 'Adept' ? el.spellsPanel : cls === 'Shepherd' ? el.miraclesPanel : el.skillsPanel;
             scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }
         });
@@ -1620,7 +1670,7 @@ function renderClasses() {
 
     const defyLine = document.createElement('div');
     defyLine.className = 'class-defy-line';
-    defyLine.textContent = `Defy: ${(DEFY_KEY_ATTRIBUTES[cls] || []).join(', ')}`;
+    defyLine.textContent = `Defy: ${getExpertiseEntry(character.genre, cls).defyAttributes.join(', ')}`;
     box.appendChild(defyLine);
 
     el.classesList.appendChild(box);
@@ -1632,8 +1682,11 @@ function renderAll() {
   el.charName.value = character.name;
   renderRaceOptions();
   renderFocusOptions();
-  renderGenreOptions();
+  renderTechLevelOptions();
   renderMagicToggle();
+  renderPsychicToggle();
+  renderCyberToggle();
+  renderMutantToggle();
   renderAttributes();
   renderClasses();
   renderCombatStats();
@@ -1702,7 +1755,7 @@ el.raceSelect.addEventListener('change', () => {
 
 el.focusSelect.addEventListener('change', () => {
   character.focus = el.focusSelect.value;
-  character.focusWeapons = rollFocusWeapons(character.focus, character.race);
+  character.focusWeapons = rollFocusWeapons(character.genre, character.focus, character.race);
   renderAttributes();
   renderClasses();
   refreshDerived();
@@ -1710,27 +1763,90 @@ el.focusSelect.addEventListener('change', () => {
   renderMiracles();
 });
 
-el.genreSelect.addEventListener('change', () => {
-  character.genre = el.genreSelect.value;
-  // Genre picks a sensible Magic default only until the player has made an
-  // explicit choice of their own via the radio buttons — after that,
-  // switching Genre never overwrites it, so Magic can be "bent" onto any
-  // genre. magicEnabledExplicit is a persisted character field (not
+// Shared cascade for whenever character.genre changes — i.e. whenever a new
+// Tech Level is picked, since Genre is derived solely from it.
+function onGenreResolved() {
+  // Each of the 4 toggles picks up the newly-selected Tech Level row's own
+  // default (see parseTechLevels in data.js) only until the player has made
+  // an explicit choice of their own via its radio buttons — after that,
+  // switching Tech Level never overwrites it, so any of the 4 can be "bent"
+  // onto any setting. …Explicit is a persisted character field (not
   // transient app state) so a save/reload doesn't look like a fresh explicit
   // choice was just made.
+  const tier = findTechLevelTier(character.techLevel, character.genreLabel);
   if (!character.magicEnabledExplicit) {
-    character.magicEnabled = character.genre === 'Fantasy';
+    character.magicEnabled = tier.magic;
     renderMagicToggle();
   }
+  if (!character.psychicEnabledExplicit) {
+    character.psychicEnabled = tier.psychic;
+    renderPsychicToggle();
+  }
+  if (!character.mutantEnabledExplicit) {
+    character.mutantEnabled = tier.mutant;
+    renderMutantToggle();
+  }
+  if (!character.cyberEnabledExplicit) {
+    character.cyberEnabled = tier.cyber;
+    renderCyberToggle();
+  }
+  // Each genre has its own race list (data/{genre}_race.csv) — Fantasy has
+  // Dwarf/Elf/Halfling/Human, every other genre currently has Human only.
+  // Falling back to Human (present in every genre) when the current race
+  // isn't offered in the new genre.
+  if (!getRaceNamesForGenre(character.genre).includes(character.race)) {
+    character.race = 'Human';
+    character.focusWeapons = rollFocusWeapons(character.genre, character.focus, character.race);
+  }
+  // Each genre has its own Focus/Class names too (data/{genre}_expertise.csv
+  // — Morrow Project renames the standard 4 to Soldier/Scout/Science/Contact,
+  // say). A class not seeded in classDots yet (first time this genre's own
+  // classes have been seen) starts at 0, same as a fresh character; existing
+  // dots under a class name from a different genre are left alone rather
+  // than deleted, in case the player switches back. If the current Focus
+  // isn't one of this genre's classes, fall back to its first one and
+  // re-roll focus weapons/sub-tabs the same way a race fallback does.
+  const activeClasses = getActiveClasses(character.genre);
+  activeClasses.forEach((cls) => {
+    if (!(cls in character.classDots)) character.classDots[cls] = 0;
+  });
+  if (!activeClasses.includes(character.focus)) {
+    character.focus = activeClasses[0];
+    character.focusWeapons = rollFocusWeapons(character.genre, character.focus, character.race);
+    activeSkillsTab = character.focus;
+    activeWeaponsTab = character.focus;
+  }
+  renderFocusOptions();
+  renderRaceOptions();
+  renderAttributes();
+  renderClasses();
   renderSkills();
   renderWeapons();
   renderSpells();
   renderMiracles();
+  renderEquipmentPanel();
+  if (el.equipmentModal.open) renderEquipmentModal();
+  refreshDerived();
+}
+
+el.techLevelSelect.addEventListener('change', () => {
+  // The select's value is an index into getAvailableTechLevels() (see
+  // renderTechLevelOptions) — several tiers can share the same TL number
+  // (one row per genre, same as "primitive" repeating across TL 1 and 2),
+  // so the index is what actually identifies which row was picked.
+  const tiers = getAvailableTechLevels();
+  const tier = tiers[Number(el.techLevelSelect.value)] || tiers[0];
+  character.techLevel = tier.tl;
+  character.genreLabel = tier.genreLabels[0];
+  character.genre = resolveCatalogGenre(character.genreLabel);
+  renderCoinage();
+  onGenreResolved();
 });
 
 function onMagicToggleChange() {
   character.magicEnabled = el.magicEnabledOn.checked;
   character.magicEnabledExplicit = true;
+  renderCombatStats();
   renderSkills();
   renderClasses();
   renderSpells();
@@ -1738,6 +1854,39 @@ function onMagicToggleChange() {
 }
 el.magicEnabledOn.addEventListener('change', onMagicToggleChange);
 el.magicEnabledOff.addEventListener('change', onMagicToggleChange);
+
+// Appendix P (Psychic Powers) — optional, Venn-Guide-enabled system. When
+// on, Psychic Powers fold into the Skills list (see getActiveSkills());
+// when off, any dots already bought in them stay in skillSpend (so turning
+// it back on doesn't lose that investment) but simply don't render.
+function onPsychicToggleChange() {
+  character.psychicEnabled = el.psychicEnabledOn.checked;
+  character.psychicEnabledExplicit = true;
+  renderSkills();
+  renderClasses();
+}
+el.psychicEnabledOn.addEventListener('change', onPsychicToggleChange);
+el.psychicEnabledOff.addEventListener('change', onPsychicToggleChange);
+
+// Cyber and Mutant have no associated content yet (see data/cyber.csv,
+// data/mutant.csv — currently empty scaffolds edited via vg-tools), so
+// unlike Magic/Psychic their toggles don't drive any Skills-panel content
+// yet. They still track state (and its own Tech-Level-derived default, see
+// onGenreResolved) so vg-tools and a saved character stay in sync with
+// whichever of the 4 systems is actually turned on.
+function onCyberToggleChange() {
+  character.cyberEnabled = el.cyberEnabledOn.checked;
+  character.cyberEnabledExplicit = true;
+}
+el.cyberEnabledOn.addEventListener('change', onCyberToggleChange);
+el.cyberEnabledOff.addEventListener('change', onCyberToggleChange);
+
+function onMutantToggleChange() {
+  character.mutantEnabled = el.mutantEnabledOn.checked;
+  character.mutantEnabledExplicit = true;
+}
+el.mutantEnabledOn.addEventListener('change', onMutantToggleChange);
+el.mutantEnabledOff.addEventListener('change', onMutantToggleChange);
 
 el.rollAllBtn.addEventListener('click', () => {
   ATTRIBUTES.forEach((attr) => { character.attributes[attr] = rollAttribute(); });
@@ -1801,7 +1950,7 @@ el.loadInput.addEventListener('change', () => {
 function normalizeLedgerSpend(loadedLedger, itemKey, classDots, min, max) {
   const result = {};
   const loadedSpend = loadedLedger && loadedLedger[itemKey];
-  CLASSES.forEach((cls) => {
+  Object.keys(classDots).forEach((cls) => {
     const v = loadedSpend && loadedSpend[cls];
     if (Number.isFinite(v)) {
       result[cls] = clamp(v, min, Math.min(max, classDots[cls]));
@@ -1812,15 +1961,33 @@ function normalizeLedgerSpend(loadedLedger, itemKey, classDots, min, max) {
 
 function normalizeLoadedCharacter(loaded) {
   const base = createDefaultCharacter();
+  // Genre is always derived from Tech Level — never loaded independently —
+  // so techLevel and genreLabel are resolved first, then genre is
+  // recomputed from them rather than trusting whatever loaded.genre says.
+  // findTechLevelTier disambiguates since several rows can share a TL
+  // number (one per genre label, e.g. the 4 rows at TL 6).
+  const techLevel = TECH_LEVELS.some((t) => t.tl === loaded.techLevel) ? loaded.techLevel : base.techLevel;
+  const tier = findTechLevelTier(techLevel, loaded.genreLabel);
+  const genreLabel = tier.genreLabels.includes(loaded.genreLabel) ? loaded.genreLabel : tier.genreLabels[0];
+  const genre = resolveCatalogGenre(genreLabel);
+  const activeClasses = getActiveClasses(genre);
   const result = {
     name: typeof loaded.name === 'string' ? loaded.name : '',
-    race: RACE_NAMES.includes(loaded.race) ? loaded.race : base.race,
-    focus: CLASSES.includes(loaded.focus) ? loaded.focus : base.focus,
-    genre: GENRES.includes(loaded.genre) ? loaded.genre : base.genre,
+    race: getRaceNamesForGenre(genre).includes(loaded.race) ? loaded.race : base.race,
+    focus: activeClasses.includes(loaded.focus) ? loaded.focus : activeClasses[0],
+    genreLabel,
+    genre,
+    techLevel,
     magicEnabled: typeof loaded.magicEnabled === 'boolean' ? loaded.magicEnabled : base.magicEnabled,
     magicEnabledExplicit: typeof loaded.magicEnabledExplicit === 'boolean' ? loaded.magicEnabledExplicit : base.magicEnabledExplicit,
+    psychicEnabled: typeof loaded.psychicEnabled === 'boolean' ? loaded.psychicEnabled : base.psychicEnabled,
+    psychicEnabledExplicit: typeof loaded.psychicEnabledExplicit === 'boolean' ? loaded.psychicEnabledExplicit : base.psychicEnabledExplicit,
+    mutantEnabled: typeof loaded.mutantEnabled === 'boolean' ? loaded.mutantEnabled : base.mutantEnabled,
+    mutantEnabledExplicit: typeof loaded.mutantEnabledExplicit === 'boolean' ? loaded.mutantEnabledExplicit : base.mutantEnabledExplicit,
+    cyberEnabled: typeof loaded.cyberEnabled === 'boolean' ? loaded.cyberEnabled : base.cyberEnabled,
+    cyberEnabledExplicit: typeof loaded.cyberEnabledExplicit === 'boolean' ? loaded.cyberEnabledExplicit : base.cyberEnabledExplicit,
     attributes: { ...base.attributes },
-    classDots: { ...base.classDots },
+    classDots: {},
   };
 
   ATTRIBUTES.forEach((attr) => {
@@ -1830,16 +1997,18 @@ function normalizeLoadedCharacter(loaded) {
     }
   });
 
-  CLASSES.forEach((cls) => {
+  // Seeded directly from this genre's own active classes (not the fixed
+  // CLASSES list) — a genre can rename/replace them via its Expertise tab,
+  // and a class not in the active list (e.g. from a genre switch since the
+  // save) is dropped rather than left stale.
+  activeClasses.forEach((cls) => {
     const v = loaded.classDots && loaded.classDots[cls];
-    if (Number.isFinite(v)) {
-      result.classDots[cls] = clamp(v, CLASS_DOTS_MIN, CLASS_DOTS_MAX);
-    }
+    result.classDots[cls] = Number.isFinite(v) ? clamp(v, CLASS_DOTS_MIN, CLASS_DOTS_MAX) : 0;
   });
 
   result.skillSpend = {};
   ALL_SKILLS.forEach((s) => {
-    result.skillSpend[s.name] = normalizeLedgerSpend(loaded.skillSpend, s.name, result.classDots, SKILL_RANKS_MIN, SKILL_RANKS_MAX);
+    result.skillSpend[s.name] = normalizeLedgerSpend(loaded.skillSpend, s.name, result.classDots, SKILL_RANKS_MIN, s.maxRank || SKILL_RANKS_MAX);
   });
 
   result.specialSpend = {};
@@ -1855,7 +2024,7 @@ function normalizeLoadedCharacter(loaded) {
   result.extraMiracleBaseRank = Number.isFinite(loaded.extraMiracleBaseRank)
     ? clamp(loaded.extraMiracleBaseRank, CLASS_DOTS_MIN, CLASS_DOTS_MAX) : 0;
 
-  // Clamp to the current Wiz/Priest slot count (same philosophy as
+  // Clamp to the current Adept/Shepherd slot count (same philosophy as
   // normalizeLedgerSpend above) in case ranks were reduced since this was
   // saved — slot count accounts for the "Extra Spell"/"Blessing of Miracles"
   // bonus, not just raw rank.
@@ -1885,20 +2054,18 @@ function normalizeLoadedCharacter(loaded) {
     result.weaponSpend.ranged[w.name] = normalizeLedgerSpend(loaded.weaponSpend && loaded.weaponSpend.ranged, w.name, result.classDots, WEAPON_RANKS_MIN, WEAPON_RANKS_MAX);
   });
 
-  const meleeNames = new Set(MELEE_WEAPONS.map((w) => w.name));
-  const rangedNames = new Set(RANGED_WEAPONS.map((w) => w.name));
+  const meleeNames = new Set(getActiveMeleeWeapons(genre).map((w) => w.name));
+  const rangedNames = new Set(getActiveRangedWeapons(genre).map((w) => w.name));
   const loadedFocusWeapons = loaded.focusWeapons;
   if (loadedFocusWeapons && Array.isArray(loadedFocusWeapons.melee) && Array.isArray(loadedFocusWeapons.ranged)) {
     const uniqueValid = (names, validSet, capacity) => [...new Set(names.filter((name) => validSet.has(name)))].slice(0, capacity);
     result.focusWeapons = {
-      melee: uniqueValid(loadedFocusWeapons.melee, meleeNames, getFocusWeaponCapacity(result.focus, 'melee')),
-      ranged: uniqueValid(loadedFocusWeapons.ranged, rangedNames, getFocusWeaponCapacity(result.focus, 'ranged')),
+      melee: uniqueValid(loadedFocusWeapons.melee, meleeNames, getFocusWeaponCapacity(genre, result.focus, 'melee')),
+      ranged: uniqueValid(loadedFocusWeapons.ranged, rangedNames, getFocusWeaponCapacity(genre, result.focus, 'ranged')),
     };
   } else {
-    result.focusWeapons = rollFocusWeapons(result.focus, result.race);
+    result.focusWeapons = rollFocusWeapons(genre, result.focus, result.race);
   }
-
-  result.armorValue = Number.isFinite(loaded.armorValue) ? loaded.armorValue : base.armorValue;
 
   result.coinage = { ...base.coinage };
   COINAGE.forEach((coin) => {
@@ -1907,7 +2074,7 @@ function normalizeLoadedCharacter(loaded) {
   });
 
   result.equipmentOwned = {};
-  const equipmentByName = new Map(EQUIPMENT.map((item) => [item.name, item]));
+  const equipmentByName = new Map(getActiveEquipment(genre).map((item) => [item.name, item]));
   if (loaded.equipmentOwned && typeof loaded.equipmentOwned === 'object') {
     Object.keys(loaded.equipmentOwned).forEach((name) => {
       if (!equipmentByName.has(name)) return;
@@ -1938,8 +2105,10 @@ function normalizeLoadedCharacter(loaded) {
   result.vitals.staminaCost = {};
   STAMINA_COST_ITEMS.forEach((item) => {
     const stored = loaded.vitals && loaded.vitals.staminaCost && loaded.vitals.staminaCost[item.id];
+    // armor is no longer stored — it's derived live from Equipped armor
+    // (getEquippedArmorStaminaCost) — an older save's armor value, if any,
+    // is simply dropped.
     result.vitals.staminaCost[item.id] = {
-      armor: Number.isFinite(stored && stored.armor) ? stored.armor : 0,
       misc: Number.isFinite(stored && stored.misc) ? stored.misc : 0,
     };
   });
@@ -1961,19 +2130,15 @@ function escHtml(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-const PRINT_COMBAT_CLASS_FOCUS_BONUS = { Fighter: 25, Priest: 20, Outlaw: 15, Wiz: 10 };
-const PRINT_CLASS_MAGIC_FOCUS_BONUS = { Fighter: 0, Outlaw: 5, Priest: 5, Wiz: 15 };
-const PRINT_CLASS_MIRACLE_FOCUS_BONUS = { Fighter: 0, Outlaw: 0, Wiz: 5, Priest: 15 };
-const PRINT_VITALS_FOCUS_MOD_PD = { Fighter: 1, Priest: 0.9, Outlaw: 0.8, Wiz: 0.7 };
-const PRINT_VITALS_FOCUS_MOD_MD = { Fighter: 0.7, Priest: 0.9, Outlaw: 0.9, Wiz: 1.1 };
-
 // class_*_focus_bonus tokens in COMBAT_STAT_GROUP/CASTING_STAT_GROUP's
-// formulaText, swapped for this character's actual Focus bonus.
+// formulaText, swapped for this character's actual Focus bonus (genre-
+// specific — see data/{genre}_expertise.csv).
 function printWithFocusBonus(formula, focus) {
+  const entry = getExpertiseEntry(character.genre, focus);
   return formula
-    .replace(/class_magic_focus_bonus/g, String(PRINT_CLASS_MAGIC_FOCUS_BONUS[focus]))
-    .replace(/class_miracle_focus_bonus/g, String(PRINT_CLASS_MIRACLE_FOCUS_BONUS[focus]))
-    .replace(/class_focus_bonus/g, String(PRINT_COMBAT_CLASS_FOCUS_BONUS[focus]));
+    .replace(/class_magic_focus_bonus/g, String(entry.magicFocusBonus))
+    .replace(/class_miracle_focus_bonus/g, String(entry.miracleFocusBonus))
+    .replace(/class_focus_bonus/g, String(entry.combatFocusBonus));
 }
 
 function printDotsRow(n, filled) {
@@ -1985,13 +2150,13 @@ function printDotsRow(n, filled) {
 }
 
 function printAttributesBlock(blank) {
-  const keySet = new Set(DEFY_KEY_ATTRIBUTES[character.focus]);
+  const keySet = new Set(getExpertiseEntry(character.genre, character.focus).defyAttributes);
   const half = Math.ceil(ATTRIBUTES.length / 2);
   const cols = [ATTRIBUTES.slice(0, half), ATTRIBUTES.slice(half)];
   const col = (attrs) => `<table class="compact attrtable"><tr><th>Attribute</th><th>Value</th><th>Defy</th></tr>
 ${attrs.map((a) => {
     const value = getEffectiveAttribute(character, a);
-    const defy = getDefyValue(character.focus, a, value);
+    const defy = getDefyValue(character, a, value);
     const rate = keySet.has(a) ? '&times;4%' : '&times;2%';
     return `<tr><td>${escHtml(a)}</td><td><b>${blank ? '' : value}</b></td><td class="defycell"><span class="defy-value">${blank ? '' : defy}</span><span class="defy-formula">${rate}</span></td></tr>`;
   }).join('')}
@@ -2003,7 +2168,7 @@ ${attrs.map((a) => {
 const PRINT_CLASSBOX_DOTS_PER_ROW = 20;
 
 function printClassesBlock(blank) {
-  const boxes = CLASSES.map((cls) => {
+  const boxes = getActiveClasses(character.genre).map((cls) => {
     const rank = blank ? 0 : character.classDots[cls];
     const row1 = Math.min(rank, PRINT_CLASSBOX_DOTS_PER_ROW);
     const row2 = Math.max(0, rank - PRINT_CLASSBOX_DOTS_PER_ROW);
@@ -2011,7 +2176,7 @@ function printClassesBlock(blank) {
 <div class="classbox${cls === character.focus ? ' classbox-focus' : ''}">
   <div class="classbox-name">${escHtml(cls)} <span class="rank-value">(${blank ? '' : rank}/${CLASS_DOTS_MAX})</span></div>
   <div class="dotgrid">${printDotsRow(PRINT_CLASSBOX_DOTS_PER_ROW, row1)}${printDotsRow(PRINT_CLASSBOX_DOTS_PER_ROW, row2)}</div>
-  <div class="classbox-defy">Defy: ${DEFY_KEY_ATTRIBUTES[cls].map((a) => a.slice(0, 3)).join('/')}</div>
+  <div class="classbox-defy">Defy: ${getExpertiseEntry(character.genre, cls).defyAttributes.map((a) => a.slice(0, 3)).join('/')}</div>
 </div>`;
   }).join('');
   return `<div class="section-title">Focus</div>
@@ -2028,8 +2193,9 @@ const PRINT_VITALS_BASE_FORMULAS = {
 };
 
 function printVitalsBlock(blank) {
-  const pdMod = PRINT_VITALS_FOCUS_MOD_PD[character.focus];
-  const mdMod = PRINT_VITALS_FOCUS_MOD_MD[character.focus];
+  const expertiseEntry = getExpertiseEntry(character.genre, character.focus);
+  const pdMod = expertiseEntry.vitalsPdMod;
+  const mdMod = expertiseEntry.vitalsMdMod;
   const rows = VITALS_STATS.map((s) => {
     const state = character.vitals[s.id];
     const base = s.formula(character);
@@ -2045,8 +2211,9 @@ function printVitalsBlock(blank) {
 function printDerivedBlock(blank) {
   const items = [
     ...COMBAT_STAT_GROUP.stats.map((s) => ({ name: s.name, formula: s.formulaText, value: s.formula(character) })),
-    { name: 'Armored Defense', formula: 'Base Defense + Armor Value', value: getArmoredDefenseTotal(character) },
-    ...CASTING_STAT_GROUP.stats.map((s) => ({ name: s.name, formula: s.formulaText, value: s.formula(character) })),
+    ...CASTING_STAT_GROUP.stats
+      .filter((s) => !s.requiresMagic || character.magicEnabled)
+      .map((s) => ({ name: s.name, formula: s.formulaText, value: s.formula(character) })),
   ];
   const rows = items.map((it) => `<tr><td><div class="stat-name">${escHtml(it.name)}</div><div class="stat-formula">${escHtml(printWithFocusBonus(it.formula, character.focus))}</div></td><td>${blank ? '' : it.value}</td></tr>`).join('');
   return `<table class="compact derivedtable"><tr><th>Derived</th><th>Target</th></tr>${rows}</table>`;
@@ -2077,7 +2244,7 @@ function printEquippedWeaponsTable(blank) {
     return `<table class="compact datatable"><tr>${cols.map((c) => `<th>${c}</th>`).join('')}</tr>${emptyRows}</table>`;
   }
   const body = rows.map(({ w, category }) => {
-    const equipmentItem = EQUIPMENT.find((e) => e.type === 'weapons' && e.name === w.name);
+    const equipmentItem = getActiveEquipment(character.genre).find((e) => e.type === 'weapons' && e.name === w.name);
     const cond = equipmentItem ? conditionLabel(isEquipmentEquipped(character, equipmentItem), isEquipmentCarried(character, equipmentItem)) : '—';
     const target = getWeaponTarget(character, category, w.name);
     return `<tr><td>${escHtml(w.name)}</td><td>${category === 'melee' ? 'M' : 'R'}</td><td>${escHtml(category === 'melee' ? w.size : w.range)}</td><td>${w.rof}</td><td><b>${target}</b></td><td>${w.impact}</td><td>${w.slash}</td><td>${w.pierce}</td><td>${w.energy}</td><td>${escHtml(cond)}</td></tr>`;
@@ -2155,7 +2322,7 @@ function printSpecialsForSheet() {
 
 // This Focus's own Skills, plus every General Skill (always available).
 function printSkillsForSheet() {
-  const activeSkills = getActiveSkills(character.genre, character.magicEnabled);
+  const activeSkills = getActiveSkills(character.genre, character.magicEnabled, character.psychicEnabled);
   const skills = activeSkills.filter((s) => isSkillEligibleForClass(character, s, character.focus) || isSkillGeneral(s));
   return [...skills].sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -2175,7 +2342,7 @@ function printSkillsColumns(blank) {
     const target = getSkillTarget(character, s);
     return `
 <div class="skill-entry">
-  <div class="skill-name">${escHtml(s.name)} <span class="skill-attr">${escHtml(s.attribute.join('/'))}</span></div>
+  <div class="skill-name">${escHtml(s.name)} <span class="skill-attr">${escHtml(s.attribute.join('/'))}${s.minTl > 0 ? ` &middot; TL ${s.minTl}+` : ''}</span></div>
   <div class="skill-row">Rank: <b>${blank ? '' : rank}</b> Tgt: <b>${blank ? '' : target}</b></div>
 </div>`;
   }).join('');
@@ -2189,7 +2356,7 @@ function printSkillsColumns(blank) {
 // so this section is just left empty for the player to write in by hand.
 function printNonFocusSkillsBlock(blank) {
   const focusSet = new Set(printSkillsForSheet());
-  const activeSkills = getActiveSkills(character.genre, character.magicEnabled);
+  const activeSkills = getActiveSkills(character.genre, character.magicEnabled, character.psychicEnabled);
   const owned = blank ? [] : activeSkills.filter((s) => !focusSet.has(s) && getSkillEffectiveRank(character, s) > 0);
   const body = owned.length === 0
     ? `<div class="ps-empty-note">${blank ? '&nbsp;' : 'None — no Skills purchased outside this Focus.'}</div>`
@@ -2198,7 +2365,7 @@ function printNonFocusSkillsBlock(blank) {
       const target = getSkillTarget(character, s);
       return `
 <div class="skill-entry">
-  <div class="skill-name">${escHtml(s.name)} <span class="skill-attr">${escHtml(s.attribute.join('/'))}</span></div>
+  <div class="skill-name">${escHtml(s.name)} <span class="skill-attr">${escHtml(s.attribute.join('/'))}${s.minTl > 0 ? ` &middot; TL ${s.minTl}+` : ''}</span></div>
   <div class="skill-row">Rank: <b>${rank}</b> Tgt: <b>${target}</b></div>
 </div>`;
     }).join('')}</div>`;
@@ -2214,7 +2381,7 @@ ${printNonFocusSkillsBlock(blank)}
 </div>`;
 }
 
-// Fighter/Outlaw have no Spell/Miracle access by default, so their printed
+// Martial/Covert have no Spell/Miracle access by default, so their printed
 // sheets skip these pages entirely (matching the blank PDF templates).
 function printGrimoireChecklist(title, entries, schools, isLearned, blank) {
   const bySchool = schools.map((school) => {
@@ -2243,7 +2410,7 @@ function printGrimoireChecklist(title, entries, schools, isLearned, blank) {
 // insert) instead of the full sheet.
 function buildPrintSheetHtml(blank) {
   const includeGrimoires = character.magicEnabled && window.PRINT_SHEET_NO_GRIMOIRE !== true
-    && (character.focus === 'Wiz' || character.focus === 'Priest');
+    && (character.focus === 'Adept' || character.focus === 'Shepherd');
   const page3 = includeGrimoires ? printGrimoireChecklist('Miracles', MIRACLES, MIRACLE_SCHOOLS, (m) => isMiracleLearned(character, m), blank) : '';
   const page4 = includeGrimoires ? printGrimoireChecklist('Spells', SPELLS, SPELL_SCHOOLS, (s) => isSpellLearned(character, s), blank) : '';
   if (window.PRINT_SHEET_GRIMOIRE_ONLY === true) {
@@ -2264,11 +2431,41 @@ window.addEventListener('beforeunload', saveCharacterToStorage);
 
 renderAll();
 
-// One-time: populate the hidden reference tables (see renderReferenceTable
-// above) — static data, not tied to the current character, so no need to
-// re-render on every change.
-renderSmallArmsTable();
-renderSmallArmsModsTable();
-renderMilitaryVehiclesTable();
+// Every data file in this app normally runs off the static copy embedded
+// in data.js, so the page stays fully usable via plain file:// with no
+// server. On every page load, though, try to fetch data/gameset.json —
+// the complete snapshot vg-tools' "Publish Game Set" button produces — and
+// apply it over the embedded defaults, so vg-tools is the actual source of
+// authority for every genre's content instead of a hand-maintained copy.
+// This only ever succeeds when the page is served over http(s); fetching a
+// local file under file:// is blocked by the browser and rejects, so this
+// is a silent, harmless no-op there and the embedded copy keeps working
+// exactly as before.
+(async () => {
+  try {
+    const res = await fetch('data/gameset.json');
+    if (!res.ok) throw new Error('no gameset.json published yet');
+    const gameSet = await res.json();
+    applyGameSet(gameSet);
+    renderAll();
+    return;
+  } catch (err) {
+    // No published Game Set yet (file://, no server, or nothing published
+    // there) — fall back to the older, narrower tech_levels.csv-only fetch
+    // below, so an existing deployment that hasn't adopted Publish yet
+    // keeps working exactly as it did before.
+  }
+  try {
+    const res = await fetch('data/tech_levels.csv');
+    if (!res.ok) return;
+    const fresh = parseTechLevels(await res.text());
+    if (fresh.length === 0) return;
+    TECH_LEVELS.length = 0;
+    TECH_LEVELS.push(...fresh);
+    renderTechLevelOptions();
+  } catch (err) {
+    // file:// (or any other fetch failure) — keep the embedded copy.
+  }
+})();
 
 })();

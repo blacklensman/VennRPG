@@ -1,5 +1,6 @@
 *.swp
 *.swo
+.DS_Store
 
 # Local-only source material and generated rulebook/data files — not published to the repo
 /data/

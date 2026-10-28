@@ -53,6 +53,8 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--accent); }
   color: var(--text-dim);
 }
 
+.header-row label[hidden] { display: none; }
+
 .header-row input, .header-row select {
   background: var(--bg);
   border: 1px solid var(--panel-border);
@@ -65,7 +67,7 @@ h2 { font-size: 1.1rem; margin: 0 0 12px; color: var(--accent); }
 .name-field { flex: 1 1 260px; }
 .race-field { flex: 0 0 160px; }
 .focus-field { flex: 0 0 160px; }
-.genre-field { flex: 0 0 160px; }
+.tech-level-field { flex: 0 0 220px; }
 
 .magic-field {
   display: flex;
@@ -242,12 +244,6 @@ button.secondary:hover {
   margin-top: 2.8rem;
 }
 
-.armored-defense-calc {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-}
-
 .combat-stats-spacer {
   height: 1.4rem;
 }
@@ -316,17 +312,6 @@ button.secondary:hover {
   border: 1px solid var(--accent);
   border-radius: 10px;
   padding: 1px 8px;
-}
-
-.tl-badge {
-  font-size: 0.7rem;
-  font-weight: normal;
-  color: var(--text-dim);
-  border: 1px solid var(--panel-border);
-  border-radius: 10px;
-  padding: 1px 8px;
-  margin-left: 8px;
-  vertical-align: middle;
 }
 
 .class-box-header .dots-value {
