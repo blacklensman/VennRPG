@@ -177,6 +177,26 @@ const TABS = [
     newEntryFile: { Fantasy: 'fantasy_race.csv', Modern: 'modern_race.csv', Dystopian: 'dystopian_race.csv', SciFi: 'scifi_race.csv', Apocalyptic: 'apocalyptic_race.csv' },
   },
   {
+    // Shred cost per action Type (Melee/Ranged/Spell-or-Miracle), each
+    // genre's own file. Editing-only: the live character builder does not
+    // read these files at all.
+    id: 'shred', label: 'Shred', nameField: 'type', genreFileSuffix: 'shred',
+    columns: ['type', 'shredCost', 'description'],
+    // Single-select dropdown, not a multiselect — a fixed 3-value enum,
+    // not a per-genre list (unlike the Focus/Race dropdowns elsewhere).
+    singleSelect: { type: 'shredType' },
+    multi: {},
+    mode: 'quoted',
+    filesByGenre: {
+      Fantasy: ['fantasy_shred.csv'],
+      Modern: ['modern_shred.csv'],
+      Dystopian: ['dystopian_shred.csv'],
+      SciFi: ['scifi_shred.csv'],
+      Apocalyptic: ['apocalyptic_shred.csv'],
+    },
+    newEntryFile: { Fantasy: 'fantasy_shred.csv', Modern: 'modern_shred.csv', Dystopian: 'dystopian_shred.csv', SciFi: 'scifi_shred.csv', Apocalyptic: 'apocalyptic_shred.csv' },
+  },
+  {
     // Psychic skills — a single shared list (not genre-split like the
     // other tabs): `sections` overrides the default GENRES row so this tab
     // renders one "Psychic" section instead of 5 genre sections.
@@ -210,7 +230,13 @@ const TABS = [
     // (character.magicEnabled in app.js), so this tab edits those two flat
     // files directly rather than per-genre copies.
     id: 'magic', label: 'Magic', nameField: 'name',
-    columns: ['id', 'school', 'name', 'cost', 'Dots Reqd', 'defy', 'clock', 'crutch', 'full_description'],
+    // "id" (A01/PN01-style) is deliberately not shown/editable here — it's
+    // a stable reference key the live app tracks learned spells/miracles
+    // by (character.spellsLearned/miraclesLearned), not something the VG
+    // needs to hand-edit day to day. It's still preserved on save (saveFile
+    // writes using the file's own loaded header, not this display list), a
+    // brand-new row just won't have one set until edited outside vg-tools.
+    columns: ['school', 'name', 'cost', 'Dots Reqd', 'defy', 'clock', 'Components', 'full_description'],
     multi: {},
     sortField: 'school',
     mode: 'quoted',
@@ -681,6 +707,8 @@ const el = {
   vgSaveTechLevelsBtn: document.getElementById('vgSaveTechLevelsBtn'),
   vgSaveAllBtn: document.getElementById('vgSaveAllBtn'),
   vgPublishBtn: document.getElementById('vgPublishBtn'),
+  vgMagicEditDialog: document.getElementById('vgMagicEditDialog'),
+  vgMagicEditFields: document.getElementById('vgMagicEditFields'),
   vgTabs: document.getElementById('vgTabs'),
   vgTabPanels: document.getElementById('vgTabPanels'),
   vgMagicOn: document.getElementById('vgMagicEnabledOn'),
@@ -1290,6 +1318,10 @@ function renderTable(tab, genre, rows) {
   const activeSort = state.columnSort[sectionKey];
   const thead = document.createElement('thead');
   const headRow = document.createElement('tr');
+  // Magic (Spells/Miracles) rows get a leading "Edit" button opening a
+  // bigger popup for the two long-text fields — Description and Components
+  // are cramped as inline table cells.
+  if (tab.id === 'magic') headRow.appendChild(document.createElement('th'));
   columns.forEach((col) => {
     const th = document.createElement('th');
     th.className = 'vg-sortable-col';
@@ -1318,7 +1350,7 @@ function renderTable(tab, genre, rows) {
   if (rows.length === 0) {
     const tr = document.createElement('tr');
     const td = document.createElement('td');
-    td.colSpan = columns.length + 1;
+    td.colSpan = columns.length + 1 + (tab.id === 'magic' ? 1 : 0);
     td.className = 'vg-empty-note';
     td.textContent = 'No entries yet.';
     tr.appendChild(td);
@@ -1337,13 +1369,28 @@ function renderRow(tab, genre, file, obj) {
   else if (obj.__dirty) tr.className = 'vg-row-dirty';
   const entry = state.files[file];
 
+  if (tab.id === 'magic') {
+    const editTd = document.createElement('td');
+    const editBtn = document.createElement('button');
+    editBtn.type = 'button';
+    editBtn.className = 'vg-edit-btn';
+    editBtn.textContent = 'Edit';
+    editBtn.title = `Edit ${obj.name || 'entry'} in a bigger popup`;
+    editBtn.addEventListener('click', () => openMagicEditDialog(tab, genre, file, obj));
+    editTd.appendChild(editBtn);
+    tr.appendChild(editTd);
+  }
+
   getColumnsFor(tab, genre).forEach((col) => {
     const td = document.createElement('td');
     const multiKind = tab.multi[col];
-    const isDescription = col.toLowerCase() === 'description';
+    const singleKind = tab.singleSelect && tab.singleSelect[col];
+    const isLongText = col.toLowerCase().includes('description') || col === 'Components';
     if (multiKind) {
       td.appendChild(renderMultiSelectCell(obj, col, multiKind, () => markDirty(tr, obj, entry, file), genre));
-    } else if (isDescription) {
+    } else if (singleKind) {
+      td.appendChild(renderSingleSelectCell(obj, col, singleKind, () => markDirty(tr, obj, entry, file), genre));
+    } else if (isLongText) {
       const textarea = document.createElement('textarea');
       textarea.className = 'vg-cell-input vg-wide vg-description-input';
       textarea.rows = 4;
@@ -1400,13 +1447,49 @@ function refreshSaveButtonMarker(file) {
 // row's own __new/__dirty — that's what "Save All" (see saveAll()) scans
 // for to know which files actually need writing, instead of re-saving
 // everything every time.
+// tr may be null (the Magic edit popup has no table row of its own to
+// highlight — renderAll() on close re-renders the real row with the
+// correct class from obj.__dirty anyway).
 function markDirty(tr, obj, entry, file) {
   if (entry) entry.dirty = true;
   if (!obj.__new) {
     obj.__dirty = true;
-    tr.className = 'vg-row-dirty';
+    if (tr) tr.className = 'vg-row-dirty';
   }
   if (file) refreshSaveButtonMarker(file);
+}
+
+// Spells/Miracles' Description and Components fields are cramped as inline
+// table cells — this opens a popup with every field for one row, giving
+// the two long-text ones much more room (everything else edits the same
+// `obj` in place as the inline table, so there's nothing separate to save
+// or merge back).
+function openMagicEditDialog(tab, genre, file, obj) {
+  const entry = state.files[file];
+  el.vgMagicEditFields.innerHTML = '';
+  getColumnsFor(tab, genre).forEach((col) => {
+    const field = document.createElement('label');
+    field.className = 'vg-magic-edit-field';
+
+    const labelText = document.createElement('span');
+    labelText.className = 'vg-magic-edit-label';
+    labelText.textContent = col.replace(/_/g, ' ');
+    field.appendChild(labelText);
+
+    const isDescription = col.toLowerCase().includes('description');
+    const isLongText = isDescription || col === 'Components';
+    const input = document.createElement(isLongText ? 'textarea' : 'input');
+    input.className = 'vg-cell-input' + (isLongText ? ' vg-magic-edit-textarea' : ' vg-wide');
+    if (isLongText) input.rows = isDescription ? 14 : 8;
+    input.value = obj[col] || '';
+    input.addEventListener('input', () => {
+      obj[col] = input.value;
+      markDirty(null, obj, entry, file);
+    });
+    field.appendChild(input);
+    el.vgMagicEditFields.appendChild(field);
+  });
+  el.vgMagicEditDialog.showModal();
 }
 
 function renderMultiSelectCell(obj, col, kind, onChange, genre) {
@@ -1466,6 +1549,36 @@ function renderMultiSelectCell(obj, col, kind, onChange, genre) {
   }
 
   return wrap;
+}
+
+// Fixed enum for the Shred tab's Type column — not genre/data-driven like
+// Focus or Race, so no dynamic lookup needed.
+const SHRED_TYPES = ['Melee', 'Ranged', 'Spell/Miracle'];
+
+// A single-value dropdown (unlike renderMultiSelectCell's multi-select) —
+// for a column that ties to exactly one Expertise/race/enum value rather
+// than a set of them. The current value stays selectable even if it no
+// longer matches any known option (stale data from before a rename, or a
+// column whose meaning just changed), so editing never silently discards it.
+function renderSingleSelectCell(obj, col, kind, onChange, genre) {
+  const select = document.createElement('select');
+  select.className = 'vg-cell-input';
+  const options = kind === 'class' ? getDynamicClassesForGenre(genre).sort()
+    : kind === 'shredType' ? SHRED_TYPES
+    : getDynamicRacesForGenre(genre).sort();
+  const current = obj[col] || '';
+  const values = [...options];
+  if (current && !values.some((v) => v.toLowerCase() === current.toLowerCase())) values.unshift(current);
+  if (!current) values.unshift('');
+  values.forEach((opt) => {
+    const o = document.createElement('option');
+    o.value = opt;
+    o.textContent = opt || '(choose)';
+    if (opt.toLowerCase() === current.toLowerCase()) o.selected = true;
+    select.appendChild(o);
+  });
+  select.addEventListener('change', () => { obj[col] = select.value; onChange(); });
+  return select;
 }
 
 // =============================================================================
@@ -1766,6 +1879,11 @@ async function publishGameSet() {
 }
 
 el.vgPublishBtn.addEventListener('click', publishGameSet);
+
+// The inline table is hidden behind the dialog while it's open, so there's
+// nothing to keep in live sync with it — just re-render once on close to
+// pick up whatever changed (dirty highlighting, Save button markers, etc).
+el.vgMagicEditDialog.addEventListener('close', () => renderAll());
 
 // =============================================================================
 // Init

@@ -423,6 +423,31 @@ button.secondary:hover {
   padding-left: 2ch;
 }
 
+.vitals-subparts-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 10px;
+  padding-left: 2ch;
+  margin: 2px 0 2px;
+}
+
+.vitals-subpart {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  font-size: 0.68rem;
+  color: var(--text-dim);
+}
+
+.vitals-subpart-label {
+  color: var(--text-dim);
+}
+
+.vitals-subpart-value {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .vitals-label {
   color: var(--text);
 }
@@ -981,4 +1006,32 @@ button.secondary:hover {
   color: var(--text-dim);
   font-size: 0.85rem;
   padding: 10px 12px;
+}
+
+.equipped-armor-subrow td {
+  padding: 2px 10px 8px;
+  border-bottom: 1px solid var(--panel-border);
+}
+
+.armor-subparts-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  padding-left: 2ch;
+}
+
+.armor-subpart {
+  display: flex;
+  gap: 4px;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+}
+
+.armor-subpart-label::after {
+  content: ':';
+}
+
+.armor-subpart-value {
+  color: var(--text);
+  font-weight: 600;
 }

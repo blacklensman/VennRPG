@@ -3,16 +3,16 @@
 const {
   ATTRIBUTES, ATTRIBUTE_MIN, ATTRIBUTE_MAX,
   CLASSES, getActiveClasses, CLASS_DOTS_MIN, CLASS_DOTS_MAX, CLASS_DOTS_ROWS, CLASS_DOTS_PER_ROW,
-  getDefyPercent, getDefyValue, getExpertiseEntry,
-  TECH_LEVELS, parseTechLevels, getAvailableTechLevels, resolveCatalogGenre, applyGameSet,
+  getDefyPercent, getDefyValue, getExpertiseEntry, getSpellcastingClass, getMiraclecastingClass,
+  GENRES, TECH_LEVELS, getAvailableTechLevels, resolveCatalogGenre, applyGameSet,
   getRaceNamesForGenre, getRaceAttributeMod, getEffectiveAttribute,
   MELEE_WEAPONS, RANGED_WEAPONS, ALL_MELEE_WEAPONS, ALL_RANGED_WEAPONS, getActiveMeleeWeapons, getActiveRangedWeapons,
   WEAPON_RANKS_MIN, WEAPON_RANKS_MAX, WEAPON_RANKS_ROWS, WEAPON_RANKS_PER_ROW,
   getFocusWeaponCapacity, isWeaponFocusEligible, rollFocusWeapons, addFocusWeapon, removeFocusWeapon,
   isWeaponEligibleForClass, weaponMatchesCharacter, getWeaponRate,
   getWeaponClassSpend, getWeaponSpentRank, getWeaponEffectiveRank, getWeaponTarget, toggleWeaponRankForClass,
-  SKILLS, ALL_SKILLS, getActiveSkills, SKILL_RANKS_MIN, SKILL_RANKS_MAX, SKILL_RANKS_ROWS, SKILL_RANKS_PER_ROW,
-  isSkillEligibleForClass, isSkillGeneral, isSkillForRace, pickSpendableClass,
+  ALL_SKILLS, getActiveSkills, SKILL_RANKS_MIN, SKILL_RANKS_MAX, SKILL_RANKS_ROWS, SKILL_RANKS_PER_ROW,
+  isSkillEligibleForClass, isSkillGeneral, isSkillForRace, pickSpendableClass, pickSpendableClassForTab,
   skillMatchesCharacter, getSkillRate, getSkillAutoMinRank,
   getSkillClassSpend, getSkillSpentRank, getSkillEffectiveRank, getSkillTarget, toggleSkillRankForClass,
   SPECIALS, isSpecialEligible, isSpecialOwned, toggleSpecialForClass,
@@ -26,7 +26,7 @@ const {
   getClassWeaponPointsUsed, getClassSkillPointsUsed,
   getClassWeaponPointsTotal, getClassSkillPointsTotal,
   getClassWeaponPointsAvailable, getClassSkillPointsAvailable,
-  getSkillPointsAvailable, hasUnspentClassDots, setClassDotsForClass,
+  getSkillPointsAvailable, setClassDotsForClass,
   COMBAT_STAT_GROUP, CASTING_STAT_GROUP, VITALS_STATS,
   STAMINA_COST_ITEMS, getStaminaCostTotal, getEquippedArmorStaminaCost,
   EQUIPMENT_TYPES, getActiveEquipment, getEquipmentQuantity, getEquipmentOwnedEntries, getActiveArmor,
@@ -311,7 +311,8 @@ function renderCombatStats() {
   el.combatStatsList.appendChild(spacer);
 
   CASTING_STAT_GROUP.stats
-    .filter((stat) => !stat.requiresMagic || character.magicEnabled)
+    .filter((stat) => (!stat.requiresMagic || character.magicEnabled)
+      && (!stat.requiresPsychic || character.psychicEnabled))
     .forEach((stat) => appendDerivedRow(el.combatStatsList, stat));
 }
 
@@ -693,6 +694,40 @@ function renderEquippedWeaponsTable(tbody, category) {
   weapons.forEach((weapon) => tbody.appendChild(buildEquippedWeaponRow(weapon, category)));
 }
 
+// Body-location Shred values, shown as an extra line directly under an
+// armor row once it's actually Equipped (not just Carried) — each a
+// fraction of whichever of S/I/P/E/B is highest for that armor, always
+// rounded down even to 0.
+function buildArmorSubrow(armorDetail) {
+  const values = ['slash', 'impact', 'pierce', 'energy', 'ballistic'].map((stat) => (armorDetail ? Number(armorDetail[stat]) || 0 : 0));
+  const highest = Math.max(0, ...values);
+  const half = Math.floor(highest / 2);
+  const quarter = Math.floor(highest / 4);
+
+  const row = document.createElement('tr');
+  row.className = 'equipped-armor-subrow';
+  const cell = document.createElement('td');
+  cell.colSpan = 11;
+  const grid = document.createElement('div');
+  grid.className = 'armor-subparts-grid';
+  [['Head', half], ['Leg', half], ['Arm', half], ['Hand', quarter], ['Foot', quarter], ['Neck', quarter]].forEach(([label, value]) => {
+    const part = document.createElement('span');
+    part.className = 'armor-subpart';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'armor-subpart-label';
+    labelEl.textContent = label;
+    const valueEl = document.createElement('span');
+    valueEl.className = 'armor-subpart-value';
+    valueEl.textContent = String(value);
+    part.appendChild(labelEl);
+    part.appendChild(valueEl);
+    grid.appendChild(part);
+  });
+  cell.appendChild(grid);
+  row.appendChild(cell);
+  return row;
+}
+
 function renderEquippedArmorTable() {
   el.equippedArmorBody.innerHTML = '';
   const entries = getWornEquipmentEntries(character, 'armor');
@@ -752,6 +787,8 @@ function renderEquippedArmorTable() {
     row.appendChild(ballisticCell);
     row.appendChild(conditionCell);
     el.equippedArmorBody.appendChild(row);
+
+    if (equipped) el.equippedArmorBody.appendChild(buildArmorSubrow(armorDetail));
   });
 }
 
@@ -842,7 +879,7 @@ function renderTabBar(container, tabNames, getActive, setActive, onSelect) {
 
 // Points summary line for a resolved spending class (which may differ from
 // the displayed tab for General/Race, since those aren't a single class).
-// Weapon dots and Skill dots are two separate pools now (a Adept/Shepherd
+// Weapon dots and Skill dots are two separate pools now (a Mage/Cleric
 // Spell:/Miracle: Skill spends from the Weapon pool, everything else from
 // the Skill pool) — shown side by side since a Skills-panel tab can contain
 // both kinds of entry at once.
@@ -986,12 +1023,14 @@ function renderSkills() {
   el.skillsList.innerHTML = '';
   el.skillsList.classList.remove('skills-list-vertical');
 
-  const activeSkills = getActiveSkills(character.genre, character.magicEnabled, character.psychicEnabled);
+  const activeSkills = getActiveSkills(character.genre, character.magicEnabled, character.psychicEnabled, character.techLevel);
 
   if (!SKILLS_EXTRA_TABS.includes(activeSkillsTab)) {
     renderPointsSummary(el.skillsSummary, activeSkillsTab);
     const eligible = activeSkills.filter((skill) => isSkillEligibleForClass(character, skill, activeSkillsTab)).sort(byName);
-    eligible.forEach((skill) => renderSkillBox(el.skillsList, skill, activeSkillsTab));
+    // Still only this tab's own skills (unchanged) — but the purchase
+    // itself can draw from any Expertise with points, not just this tab's.
+    eligible.forEach((skill) => renderSkillBox(el.skillsList, skill, pickSpendableClassForTab(character, activeSkillsTab)));
     return;
   }
 
@@ -1296,8 +1335,10 @@ function renderOwnedSpecials() {
   });
 }
 
-// Shared by Spells (Adept) and Miracles (Shepherd): a reference grimoire, not
-// purchased from the shared point pool — each class rank instead grants one
+// Shared by Spells (the current genre's spellcasting class) and Miracles
+// (its miraclecasting class) — see getSpellcastingClass/
+// getMiraclecastingClass in data.js: a reference grimoire, not purchased
+// from the shared point pool — each class rank instead grants one
 // learnable-entry slot (see getSlotCount/getLearnedCount/canLearn). The
 // whole panel hides until `hasAccess(character)` is true.
 function renderGrimoire(opts) {
@@ -1314,7 +1355,7 @@ function renderGrimoire(opts) {
   const slots = getSlotCount(character);
   const learnedCount = getLearnedCount(character);
   const bonusSpecialName = className === 'Spell' ? 'Extra Spell' : 'Blessing of Miracles';
-  const rankLabel = className === 'Spell' ? 'Adept' : 'Shepherd';
+  const rankLabel = className === 'Spell' ? getSpellcastingClass(character.genre) : getMiraclecastingClass(character.genre);
   const bonusSpecial = SPECIALS.find((s) => s.name === bonusSpecialName);
   const hasBonus = bonusSpecial && isSpecialOwned(character, bonusSpecial);
   const slotsNote = hasBonus ? `1+ per ${rankLabel} rank, +1 more per rank after ${bonusSpecialName}` : `1 per ${rankLabel} rank`;
@@ -1369,7 +1410,7 @@ function renderGrimoire(opts) {
       if (entry.dotsRequired > 0) metaParts.push(`Requires: ${entry.dotsRequired} dot${entry.dotsRequired === 1 ? '' : 's'}`);
       if (entry.defy) metaParts.push(`Defy: ${entry.defy}`);
       if (entry.clock) metaParts.push(`Clock: ${entry.clock}`);
-      if (entry.crutch) metaParts.push(`Crutch: ${entry.crutch}`);
+      if (entry.components) metaParts.push(`Components: ${entry.components}`);
       if (metaParts.length > 0) {
         const meta = document.createElement('div');
         meta.className = 'spell-meta';
@@ -1450,7 +1491,7 @@ function buildVitalsRow(stat) {
   magicInput.type = 'number';
   magicInput.className = 'vitals-input';
   magicInput.value = state.magic;
-  magicInput.title = 'Magic';
+  magicInput.title = 'Mysticism';
   magicInput.addEventListener('change', () => {
     state.magic = parseInt(magicInput.value, 10) || 0;
     renderVitals();
@@ -1478,6 +1519,57 @@ function buildVitalsRow(stat) {
   row.appendChild(miscInput);
   row.appendChild(totalField);
   return row;
+}
+
+// Physical Damage sub-locations — display-only (no Base/Magic/Misc inputs
+// of their own), each a fraction of Physical Damage's own current total or
+// of another sub-location: head/arm/leg = 1/2 Physical Damage; neck = 1/2
+// head, hand = 1/2 arm, foot = 1/2 leg. Order matches the 2-column grid
+// layout (see buildPhysicalDamageSubgrid): head/neck, arm/hand, leg/foot
+// per row, pairing each half with the half derived from it.
+const PHYSICAL_DAMAGE_SUBPARTS = [
+  { id: 'head', label: 'Head' },
+  { id: 'neck', label: 'Neck' },
+  { id: 'arm', label: 'Arm' },
+  { id: 'hand', label: 'Hand' },
+  { id: 'leg', label: 'Leg' },
+  { id: 'foot', label: 'Foot' },
+];
+
+function getPhysicalDamageSubpartValues() {
+  const pdStat = VITALS_STATS.find((s) => s.id === 'physicalDamage');
+  const state = character.vitals.physicalDamage;
+  const base = pdStat.formula(character);
+  const pdTotal = roundUp(base + (Number(state.magic) || 0) + (Number(state.misc) || 0));
+  const head = roundUp(pdTotal * 0.5);
+  const arm = roundUp(pdTotal * 0.5);
+  const leg = roundUp(pdTotal * 0.5);
+  return {
+    head, arm, leg,
+    neck: roundUp(head * 0.5),
+    hand: roundUp(arm * 0.5),
+    foot: roundUp(leg * 0.5),
+  };
+}
+
+function buildPhysicalDamageSubgrid() {
+  const values = getPhysicalDamageSubpartValues();
+  const grid = document.createElement('div');
+  grid.className = 'vitals-subparts-grid';
+  PHYSICAL_DAMAGE_SUBPARTS.forEach((part) => {
+    const cell = document.createElement('div');
+    cell.className = 'vitals-subpart';
+    const label = document.createElement('span');
+    label.className = 'vitals-subpart-label';
+    label.textContent = part.label;
+    const value = document.createElement('span');
+    value.className = 'vitals-subpart-value';
+    value.textContent = values[part.id];
+    cell.appendChild(label);
+    cell.appendChild(value);
+    grid.appendChild(cell);
+  });
+  return grid;
 }
 
 function buildStaminaCostRow(item) {
@@ -1527,7 +1619,7 @@ function buildStaminaCostRow(item) {
   return row;
 }
 
-// Column 1: Physical Damage, Mental Damage, Movement, Initiative.
+// Column 1: Physical Damage, Mental Damage, Movement.
 // Column 2: Stamina, then the Stamina Cost sub-list right under it. Two
 // independent flex columns (not one grid) so Stamina Cost's extra height
 // doesn't stretch column 1's row spacing.
@@ -1545,6 +1637,7 @@ function renderVitals() {
   VITALS_STATS.forEach((stat) => {
     const column = stat.id === 'stamina' ? col2 : col1;
     column.appendChild(buildVitalsRow(stat));
+    if (stat.id === 'physicalDamage') column.appendChild(buildPhysicalDamageSubgrid());
   });
 
   const costHeader = document.createElement('div');
@@ -1599,18 +1692,18 @@ function renderClasses() {
     const skillUsed = getClassSkillPointsUsed(character, cls);
     const rankMultiplier = getClassRankMultiplier(character);
     const minRanksForSpend = Math.max(weaponUsed, Math.ceil(skillUsed / rankMultiplier));
-    // Buying another class rank — in ANY class — is blocked while any class
-    // still has an unspent Weapon or Skill dot from a rank already bought.
-    const dotsBlocked = hasUnspentClassDots(character);
-    // Adept/Shepherd ranks each hold Spell/Miracle slots — normally 1:1, but
-    // "Extra Spell"/"Blessing of Miracles" add bonus slots for ranks gained
-    // after acquiring them, so slot count isn't linear with rank. Simulate
-    // the slot count at the candidate target rank rather than a fixed floor.
-    const grimoireLearnedCount = cls === 'Adept' ? getSpellsLearnedCount(character)
-      : cls === 'Shepherd' ? getMiraclesLearnedCount(character)
+    // The spellcasting/miraclecasting class's ranks each hold Spell/Miracle
+    // slots — normally 1:1, but "Extra Spell"/"Blessing of Miracles" add
+    // bonus slots for ranks gained after acquiring them, so slot count
+    // isn't linear with rank. Simulate the slot count at the candidate
+    // target rank rather than a fixed floor.
+    const isSpellcastClass = cls === getSpellcastingClass(character.genre);
+    const isMiraclecastClass = cls === getMiraclecastingClass(character.genre);
+    const grimoireLearnedCount = isSpellcastClass ? getSpellsLearnedCount(character)
+      : isMiraclecastClass ? getMiraclesLearnedCount(character)
       : 0;
-    const getGrimoireSlotsForRank = cls === 'Adept' ? (r) => getSpellSlotCountForRank(character, r)
-      : cls === 'Shepherd' ? (r) => getMiracleSlotCountForRank(character, r)
+    const getGrimoireSlotsForRank = isSpellcastClass ? (r) => getSpellSlotCountForRank(character, r)
+      : isMiraclecastClass ? (r) => getMiracleSlotCountForRank(character, r)
       : () => Infinity;
     for (let row = 0; row < CLASS_DOTS_ROWS; row += 1) {
       const grid = document.createElement('div');
@@ -1633,17 +1726,15 @@ function renderClasses() {
           title = locked
             ? (breaksSpend
               ? `Can't reduce ${cls} below ${minRanksForSpend} rank${minRanksForSpend === 1 ? '' : 's'} while ${weaponUsed} weapon dot${weaponUsed === 1 ? '' : 's'} and ${skillUsed} skill dot${skillUsed === 1 ? '' : 's'} are spent`
-              : `Can't reduce ${cls} to ${targetValue} rank${targetValue === 1 ? '' : 's'} while ${grimoireLearnedCount} ${cls === 'Adept' ? 'spell' : 'miracle'}${grimoireLearnedCount === 1 ? ' is' : 's are'} known`)
+              : `Can't reduce ${cls} to ${targetValue} rank${targetValue === 1 ? '' : 's'} while ${grimoireLearnedCount} ${isSpellcastClass ? 'spell' : 'miracle'}${grimoireLearnedCount === 1 ? ' is' : 's are'} known`)
             : `Set ${cls} to ${dotIndex}`;
         } else if (dotIndex === current + 1) {
-          // Class ranks are only ever bought one at a time — see
-          // setClassDotsForClass — because this new rank's own Weapon/Skill
-          // dot(s) must be fully spent before the rank after it, in any
-          // class, becomes available at all.
-          locked = dotsBlocked;
-          title = locked
-            ? `Spend every Weapon and Skill dot already granted, in every Expertise, before buying another Expertise rank`
-            : `Set ${cls} to ${dotIndex} (grants 1 weapon skill dot + ${rankMultiplier} skill dot${rankMultiplier === 1 ? '' : 's'})`;
+          // Class ranks are only ever bought one at a time, within this
+          // same Expertise — see setClassDotsForClass. Dots can otherwise
+          // be freely accumulated across any number of Expertises without
+          // first spending what's already been granted.
+          locked = false;
+          title = `Set ${cls} to ${dotIndex} (grants 1 weapon skill dot + ${rankMultiplier} skill dot${rankMultiplier === 1 ? '' : 's'})`;
         } else {
           locked = true;
           title = `Buy ${cls} rank ${current + 1} first — Expertise ranks are bought one at a time`;
@@ -1659,7 +1750,7 @@ function renderClasses() {
           }
           refreshPointsPanels();
           if (grew) {
-            const scrollTarget = cls === 'Adept' ? el.spellsPanel : cls === 'Shepherd' ? el.miraclesPanel : el.skillsPanel;
+            const scrollTarget = isSpellcastClass ? el.spellsPanel : isMiraclecastClass ? el.miraclesPanel : el.skillsPanel;
             scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
           }
         });
@@ -1864,6 +1955,7 @@ function onPsychicToggleChange() {
   character.psychicEnabledExplicit = true;
   renderSkills();
   renderClasses();
+  renderCombatStats();
 }
 el.psychicEnabledOn.addEventListener('change', onPsychicToggleChange);
 el.psychicEnabledOff.addEventListener('change', onPsychicToggleChange);
@@ -2024,7 +2116,7 @@ function normalizeLoadedCharacter(loaded) {
   result.extraMiracleBaseRank = Number.isFinite(loaded.extraMiracleBaseRank)
     ? clamp(loaded.extraMiracleBaseRank, CLASS_DOTS_MIN, CLASS_DOTS_MAX) : 0;
 
-  // Clamp to the current Adept/Shepherd slot count (same philosophy as
+  // Clamp to the current Mage/Cleric slot count (same philosophy as
   // normalizeLedgerSpend above) in case ranks were reduced since this was
   // saved — slot count accounts for the "Extra Spell"/"Blessing of Miracles"
   // bonus, not just raw rank.
@@ -2184,10 +2276,9 @@ function printClassesBlock(blank) {
 }
 
 const PRINT_VITALS_BASE_FORMULAS = {
-  physicalDamage: (pd) => `(Phy+Str+Con)/2 &times; (${pd}+race_pd) &times; tot_rk`,
-  mentalDamage: (pd, md) => `(Intl+Wil+Con)/2 &times; (${md}+race_md) &times; tot_rk`,
+  physicalDamage: (pd) => `(Phy+Str+Con)/2 &times; (${pd}+race_pd) + tot_rk`,
+  mentalDamage: (pd, md) => `(Intl+Wil+Con)/2 &times; (${md}+race_md) + tot_rk`,
   movement: () => 'Str+Agi+Con+race_mv',
-  initiative: () => '(Agi+Intl+Intu+Brv)/4 + 5&times;Thf_rk + 3&times;Ftr_rk + race_init',
   staminaRecovery: () => '(Con+Wil)/2',
   stamina: () => 'Str + 2&times;Con + 2&times;Wil + tot_rk&times;(Con/2)',
 };
@@ -2212,7 +2303,8 @@ function printDerivedBlock(blank) {
   const items = [
     ...COMBAT_STAT_GROUP.stats.map((s) => ({ name: s.name, formula: s.formulaText, value: s.formula(character) })),
     ...CASTING_STAT_GROUP.stats
-      .filter((s) => !s.requiresMagic || character.magicEnabled)
+      .filter((s) => (!s.requiresMagic || character.magicEnabled)
+        && (!s.requiresPsychic || character.psychicEnabled))
       .map((s) => ({ name: s.name, formula: s.formulaText, value: s.formula(character) })),
   ];
   const rows = items.map((it) => `<tr><td><div class="stat-name">${escHtml(it.name)}</div><div class="stat-formula">${escHtml(printWithFocusBonus(it.formula, character.focus))}</div></td><td>${blank ? '' : it.value}</td></tr>`).join('');
@@ -2321,8 +2413,13 @@ function printSpecialsForSheet() {
 }
 
 // This Focus's own Skills, plus every General Skill (always available).
+// Skills bought outside this set print separately — see
+// printNonFocusSkillsBlock() below — reachable since a class-tagged skill's
+// purchase can draw from any Expertise's pool with points (see
+// pickSpendableClassForTab), even though it's still only shown under its
+// own tag's tab(s) in the interactive panel.
 function printSkillsForSheet() {
-  const activeSkills = getActiveSkills(character.genre, character.magicEnabled, character.psychicEnabled);
+  const activeSkills = getActiveSkills(character.genre, character.magicEnabled, character.psychicEnabled, character.techLevel);
   const skills = activeSkills.filter((s) => isSkillEligibleForClass(character, s, character.focus) || isSkillGeneral(s));
   return [...skills].sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -2356,7 +2453,7 @@ function printSkillsColumns(blank) {
 // so this section is just left empty for the player to write in by hand.
 function printNonFocusSkillsBlock(blank) {
   const focusSet = new Set(printSkillsForSheet());
-  const activeSkills = getActiveSkills(character.genre, character.magicEnabled, character.psychicEnabled);
+  const activeSkills = getActiveSkills(character.genre, character.magicEnabled, character.psychicEnabled, character.techLevel);
   const owned = blank ? [] : activeSkills.filter((s) => !focusSet.has(s) && getSkillEffectiveRank(character, s) > 0);
   const body = owned.length === 0
     ? `<div class="ps-empty-note">${blank ? '&nbsp;' : 'None — no Skills purchased outside this Focus.'}</div>`
@@ -2410,7 +2507,7 @@ function printGrimoireChecklist(title, entries, schools, isLearned, blank) {
 // insert) instead of the full sheet.
 function buildPrintSheetHtml(blank) {
   const includeGrimoires = character.magicEnabled && window.PRINT_SHEET_NO_GRIMOIRE !== true
-    && (character.focus === 'Adept' || character.focus === 'Shepherd');
+    && (character.focus === getSpellcastingClass(character.genre) || character.focus === getMiraclecastingClass(character.genre));
   const page3 = includeGrimoires ? printGrimoireChecklist('Miracles', MIRACLES, MIRACLE_SCHOOLS, (m) => isMiracleLearned(character, m), blank) : '';
   const page4 = includeGrimoires ? printGrimoireChecklist('Spells', SPELLS, SPELL_SCHOOLS, (s) => isSpellLearned(character, s), blank) : '';
   if (window.PRINT_SHEET_GRIMOIRE_ONLY === true) {
@@ -2433,39 +2530,79 @@ renderAll();
 
 // Every data file in this app normally runs off the static copy embedded
 // in data.js, so the page stays fully usable via plain file:// with no
-// server. On every page load, though, try to fetch data/gameset.json —
-// the complete snapshot vg-tools' "Publish Game Set" button produces — and
-// apply it over the embedded defaults, so vg-tools is the actual source of
-// authority for every genre's content instead of a hand-maintained copy.
+// server. On every page load, though, fetch whatever's actually sitting
+// in data/ right now and apply it over the embedded defaults, so vg-tools
+// (and even a direct hand-edit of a CSV) is the real source of authority —
+// never a hand-maintained copy stuck until someone remembers to publish.
 // This only ever succeeds when the page is served over http(s); fetching a
 // local file under file:// is blocked by the browser and rejects, so this
 // is a silent, harmless no-op there and the embedded copy keeps working
 // exactly as before.
+async function fetchDataFile(name) {
+  try {
+    // no-store: a plain reload must always hit the server, never a cached
+    // response — some of these files (spells/miracles especially) can go
+    // a long time between edits, so the browser's own heuristic freshness
+    // window can otherwise serve a stale copy for far longer than a file
+    // edited more recently/frequently, even though nothing here ever
+    // sends an explicit Cache-Control header to prevent that.
+    const res = await fetch(`data/${name}`, { cache: 'no-store' });
+    return res.ok ? await res.text() : null;
+  } catch (err) {
+    return null;
+  }
+}
+
+// Mirrors exactly the set of filenames applyGameSet() already knows how
+// to read (see data.js) — so adding a new genre to GENRES automatically
+// picks up its files here too, no further code change needed. A missing
+// file (404, or nothing saved yet) is simply skipped.
+async function fetchRawDataFileMap() {
+  const names = new Set([
+    'special.csv', 'small_arms.csv', 'fantasy_spells.csv', 'fantasy_miracles.csv',
+    'psychic_tl9.csv', 'psychic_tl8.csv', 'psychic_tl7.csv', 'psychic_tl6.csv',
+    'melee_weapons.csv', 'ranged_weapons.csv', 'fantasy_skills.csv',
+  ]);
+  GENRES.forEach((genre) => {
+    const prefix = genre.toLowerCase().replace(/\s+/g, '_');
+    names.add(`${prefix}_expertise.csv`);
+    names.add(`${prefix}_eq.csv`);
+    names.add(`${prefix}_armor.csv`);
+    names.add(`${prefix}_race.csv`);
+    if (genre !== 'Fantasy') {
+      names.add(`${prefix}_skills.csv`);
+      names.add(`${prefix}_melee.csv`);
+      names.add(`${prefix}_ranged.csv`);
+    }
+  });
+
+  const entries = await Promise.all([...names].map(async (name) => [name, await fetchDataFile(name)]));
+  const files = {};
+  entries.forEach(([name, text]) => { if (text != null) files[name] = text; });
+  return files;
+}
+
 (async () => {
+  // A published gameset.json (if present) first, as a single-file snapshot
+  // — then the raw per-file CSVs layered on top, so a loose file edited
+  // straight in data/ (no "Publish Game Set" click) always wins over a
+  // possibly-stale published bundle.
   try {
-    const res = await fetch('data/gameset.json');
-    if (!res.ok) throw new Error('no gameset.json published yet');
-    const gameSet = await res.json();
-    applyGameSet(gameSet);
-    renderAll();
-    return;
+    const res = await fetch('data/gameset.json', { cache: 'no-store' });
+    if (res.ok) applyGameSet(await res.json());
   } catch (err) {
-    // No published Game Set yet (file://, no server, or nothing published
-    // there) — fall back to the older, narrower tech_levels.csv-only fetch
-    // below, so an existing deployment that hasn't adopted Publish yet
-    // keeps working exactly as it did before.
+    // file://, no server, or nothing published yet — fine, fall through.
   }
   try {
-    const res = await fetch('data/tech_levels.csv');
-    if (!res.ok) return;
-    const fresh = parseTechLevels(await res.text());
-    if (fresh.length === 0) return;
-    TECH_LEVELS.length = 0;
-    TECH_LEVELS.push(...fresh);
-    renderTechLevelOptions();
+    const files = await fetchRawDataFileMap();
+    const techLevels = await fetchDataFile('tech_levels.csv');
+    if (Object.keys(files).length > 0 || techLevels != null) {
+      applyGameSet({ files, knownGenres: GENRES, techLevels: techLevels || undefined });
+    }
   } catch (err) {
-    // file:// (or any other fetch failure) — keep the embedded copy.
+    // file:// (or any other fetch failure) — keep whatever's already loaded.
   }
+  renderAll();
 })();
 
 })();

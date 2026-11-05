@@ -66,10 +66,10 @@ function parseExpertiseCsv(csv) {
 }
 
 const FANTASY_EXPERTISE_CSV = `name,defy_attributes,focus_melee_weapons,focus_ranged_weapons,combat_focus_bonus,magic_focus_bonus,miracle_focus_bonus,vitals_pd_mod,vitals_md_mod
-Martial,Physique;Strength;Constitution;Bravery,3,2,25,0,0,1,0.7
-Covert,Agility;Dexterity;Charisma;Intuition,2,1,15,5,0,0.8,0.9
-Adept,Mysticism;Intellect;Intuition;Willpower,1,1,10,15,5,0.7,1.1
-Shepherd,Willpower;Mysticism;Constitution;Charisma,2,1,20,5,15,0.9,0.9`;
+Fighter,Physique;Strength;Constitution;Bravery,3,2,25,0,0,1.2,0.7
+Thief,Agility;Dexterity;Charisma;Intuition,2,1,15,5,0,0.9,0.9
+Mage,Mysticism;Intellect;Intuition;Willpower,1,1,10,15,5,0.8,1.1
+Cleric,Willpower;Mysticism;Constitution;Charisma,2,1,20,5,15,1,1`;
 
 // Every non-Fantasy genre starts as an identical copy of Fantasy's table —
 // a starting point to customize per genre, same as Equipment/Armor.
@@ -121,6 +121,20 @@ function getExpertiseEntry(genre, focus) {
   return getActiveExpertise(genre).find((e) => e.name === focus)
     || FANTASY_EXPERTISE.find((e) => e.name === focus)
     || { defyAttributes: [], focusMeleeWeapons: 0, focusRangedWeapons: 0, combatFocusBonus: 0, magicFocusBonus: 0, miracleFocusBonus: 0, vitalsPdMod: 0, vitalsMdMod: 0 };
+}
+
+// Whichever Expertise has the highest magic_focus_bonus (or
+// miracle_focus_bonus) for the given genre is that genre's own
+// spellcasting/miraclecasting class — Mage/Cleric in Fantasy, but this
+// reads it from each genre's own <genre>_expertise.csv row rather than a
+// hardcoded name, so it resolves correctly for every genre (the TL
+// dropdown's selection), not just Fantasy.
+function getSpellcastingClass(genre) {
+  return getActiveExpertise(genre).reduce((best, e) => (!best || e.magicFocusBonus > best.magicFocusBonus ? e : best), null).name;
+}
+
+function getMiraclecastingClass(genre) {
+  return getActiveExpertise(genre).reduce((best, e) => (!best || e.miracleFocusBonus > best.miracleFocusBonus ? e : best), null).name;
 }
 
 // Defy = attribute value * a per-attribute rate: 4% for an attribute that's
@@ -248,11 +262,11 @@ function getEffectiveAttribute(character, attribute) {
 }
 
 // Resolves one entry from a skill's/weapon's Attribute list. Most entries
-// name a base Attribute, but "Magic Casting" or "Miracle Casting" (case-
+// name a base Attribute, but "Spell Casting" or "Miracle Casting" (case-
 // insensitive) instead use that calculated combat stat's value.
 function resolveAttributeValue(character, attribute) {
   const normalized = (attribute || '').trim().toLowerCase();
-  if (normalized === 'magic casting') return getMagicCasting(character);
+  if (normalized === 'spell casting') return getMagicCasting(character);
   if (normalized === 'miracle casting') return getMiracleCasting(character);
   return getEffectiveAttribute(character, attribute);
 }
@@ -663,81 +677,13 @@ const SKILL_RANKS_PER_ROW = 10;
 const SKILL_BASE_RATE = 3;
 const SKILL_BONUS_RATE = 6;
 
-const SKILLS_CSV = `name,description,attribute,min_tl,focus,race
-Athletics,Climb; jump; swim; run; lift; parkour,Strength;Agility;Physique,1,,
-Perception,Notice details; spot danger; search; situational awareness,Intuition,1,,
-Survival,Wilderness living; foraging; tracking; shelter,Intuition;Constitution,1,,
-Riding / Animal Handling,Mounts; beasts of burden; basic animal care,Agility;Intuition,1,,
-Language,Per language; ranks for fluency,Intellect,1,Adept;Shepherd,
-Trade / Profession,Merchant; farmer; artisan; laborer; administrator,,1,,
-Craft (basic),Common practical crafts,Dexterity;Intellect,1,,
-Endurance,2x Stamina recovery chances,Constitution;Physique,1,,
-Pilot (water),Sailing or other small ship piloting,Intellect;Intuition,2,,
-Gambling,Odds; games of chance,Intellect;Charisma,1,,
-Driving (basic),Everyday vehicles,Dexterity;Agility,4,,
-Computer Use (basic),Everyday devices and software,Intellect;Dexterity,5,,
-First Aid,Basic emergency care,Dexterity;Willpower,1,,
-Navigation (basic),Land; maps; digital at TL5+,Intellect;Intuition,1,,
-Armor Use,1/2 Armor Stamina cost,Strength;Constitution,2,martial,
-Tactics,Small-unit tactics; positioning; ambushes; battlefield reading,Intellect;Intuition,1,martial,
-Intimidation,Threats; presence; breaking morale (also Covert),Strength;Bravery;Charisma,1,martial;covert,
-Heavy Weapons,Crew-served weapons; vehicle weapons; explosives,Strength;Dexterity,4,martial,
-Driving (Advanced),High-performance or combat driving,Dexterity;Agility,4,martial,
-Piloting (Atmospheric),Aircraft and helicopters,Dexterity;Intellect,5,martial,
-Shield Use,Blocking and fighting with shields,Strength;Agility,1,martial,
-Unarmed Combat,Holds; throws; pins; joint locks,Strength;Agility,1,martial,
-Mounted Combat,Fighting effectively from horseback or mounts,Agility;Strength,1,martial,
-Demolitions,Explosives handling; placement; and disarming,Intellect;Dexterity,4,martial,
-Camouflage,Concealing positions; vehicles; or personnel,Intellect;Agility,3,martial,
-Interrogation (field),Rapid field questioning under stress,Willpower;Strength,1,martial,
-Stealth,Hiding; silent movement; urban and wilderness,Agility;Dexterity,1,covert,
-Sleight of Hand,Pickpocket; palming; stage magic,Dexterity,1,covert,
-Lockpicking / Security,Mechanical TL1+; electronic/cyber TL5+,Dexterity;Intellect,1,covert,
-Deception,Lies; misdirection; social engineering,Intellect;Charisma;Attraction,1,covert,
-Streetwise,Urban underworld; contacts; local knowledge,Intuition;Charisma,1,covert,
-Surveillance,Shadowing; observation; tech-enhanced TL5+,Intuition;Dexterity,1,covert,
-Forgery,Documents; digital TL5+,Dexterity;Intellect,2,covert,
-Acrobatics,Balance; tumbling; evasion; parkour,Agility;Dexterity,1,covert,
-Disguise,Appearance alteration; impersonation,Charisma;Dexterity,1,covert,
-Interrogation,Questioning; extracting information,Intellect;Willpower;Charisma,1,covert,
-Escape Artist,Ability to free themselves or complex escape planning,Dexterity;Agility,1,covert,
-Shadowing,Following without detection,Agility;Intuition,1,covert,
-Poisons,Preparation and delivery of toxins,Intellect;Dexterity,2,Covert;Shepherd,
-Cryptography,Codes; ciphers; digital TL5+,Intellect;Intuition,3,Adept;Covert,
-Fast Talk,Rapid persuasion under pressure,Charisma;Intellect,1,covert,
-Lore / History,General knowledge; legends; local history,Intellect,1,Adept;Shepherd,
-Research,Libraries; investigation; databases TL5+,Intellect;Intuition,1,adept,
-Craft (advanced),Specialized high-quality crafting,Dexterity;Intellect,1,,
-Engineering,Design and construction; specializations by field/TL,Intellect;Intuition,3,adept,
-Occult / Arcane Lore,Fantasy or mystic settings,Intellect;Mysticism;Intuition,1,Adept;Shepherd,
-Science,Physics; chemistry; biology (specializations),Intellect,4,adept,
-Electronics,Circuits; devices; sensors,Intellect;Dexterity,5,adept,
-Computer (Advanced),Operation; programming; systems,Intellect;Intuition,5,adept,
-Hacking / Cybersecurity,Intrusion and systems exploitation,Intellect;Intuition,5,Adept;Covert,
-Repair / Mechanics,Fixing tools; vehicles; gear,Dexterity;Intellect,1,Adept;Martial,
-Navigation,Land/sea; orienteering 4+; space at TL7+,Intellect;Intuition,1,Adept;Martial,
-Chemistry,Practical and theoretical,Intellect,4,adept,
-Medicine (advanced),Surgery; diagnosis; treatment,Intellect;Dexterity,4,adept,
-Alchemy,Transmutation and magical substances (fantasy),Intellect;Mysticism,3,adept,
-Artifice,Creating magical or technological devices,Intellect;Dexterity,3,adept,
-Persuasion,Bargaining; convincing; influence,Charisma;Attraction,1,shepherd,
-Diplomacy,Negotiation; formal dealings; etiquette,Intellect;Charisma;Attraction,1,shepherd,
-Leadership,Command; morale; inspiring others,Charisma;Bravery;Willpower,1,Martial;Shepherd,
-Reading People,Reading people; detecting lies,Intuition;Charisma,1,Covert;Shepherd,
-Performance,Oratory; acting; music; entertainment,Charisma;Attraction;Dexterity,1,shepherd,
-Medicine (basic),Basic to advanced care,Intellect;Dexterity;Intuition,1,Adept;Shepherd,
-Pharmacology,Drugs; poisons; herbs,Intellect,3,Adept;Shepherd,
-Attraction / Seduction,Physical and social allure,Attraction;Charisma,1,shepherd,
-Teaching / Instruction,Passing on skills or knowledge,Intellect;Charisma,1,shepherd,
-Speaking,Public speaking; Sermons; inspiring crowds,Charisma;Willpower,1,shepherd,
-Meditation,Focus; recovery; spiritual discipline,Willpower;Intuition,1,Adept;Shepherd,`;
-
 // Header-driven rather than positional — a hand-edited file (not written by
 // vg-tools, which always emits its own fixed column order) can list
 // min_tl/attribute in either order, or spell the attribute column singular
 // or plural, and this still reads it correctly instead of silently
 // swapping the two (exactly the kind of mismatch that bit
-// data/morrow_project_skills.csv).
+// data/morrow_project_skills.csv). Rows with no name (a stray blank CSV
+// line) are dropped rather than becoming an empty entry.
 function parseSkillsCsv(csv) {
   const lines = csv.trim().split('\n').filter(Boolean);
   if (lines.length === 0) return [];
@@ -754,35 +700,86 @@ function parseSkillsCsv(csv) {
       focus: parseMultiValue(row.focus).map(capitalizeToken),
       race: parseMultiValue(row.race).map(capitalizeToken),
     };
-  });
+  }).filter((row) => row.name);
 }
 
-const SKILLS = parseSkillsCsv(SKILLS_CSV);
+// Fantasy's full, self-contained skill list (data/fantasy_skills.csv) — no
+// more separate hidden "every genre gets these for free" baseline
+// (data/skills.csv is retired; nothing reads it any more). Split in two:
+// FANTASY_SKILLS is just the Spell:/Miracle: casting skills, still gated by
+// magicEnabled independent of genre (see getActiveSkills()) so Magic can be
+// "bent" onto any genre; FANTASY_GENRE_SKILLS is everything else, Fantasy's
+// own contribution to GENRE_SKILLS below, same role every other genre's
+// file already has.
+const FANTASY_SKILLS_CSV = `name,description,min_tl,attribute,focus,race
+Athletics,Climb; jump; swim; run; lift; and basic physical movement,1,Strength;Agility;Physique,Fighter,
+Perception,Notice details; spot danger; search; and maintain situational awareness,1,Intuition,,
+Survival,Wilderness living; foraging; tracking; shelter building; and basic outdoor skills,1,Intuition;Constitution,,
+Riding: Animal,Handle mounts; beasts of burden; and basic animal care,1,Agility;Intuition,,
+Language,Speak and understand a language; ranks indicate fluency,1,Intellect,,
+Trade / Profession,Perform common work as merchant; farmer; artisan; laborer; or administrator,1,Intellect;Charisma,,
+Craft (basic),Perform common practical crafts such as woodworking; leatherwork; or simple metalwork,1,Dexterity;Intellect,,
+Endurance,Improve stamina recovery and resist fatigue; hunger; and exposure,1,Constitution;Physique,,
+First Aid,Provide basic emergency care and stabilize injuries,1,Dexterity;Willpower,,
+Navigation (basic),Use landmarks; sun; stars; and simple maps for overland travel,1,Intellect;Intuition,,
+Cooking,Prepare safe and edible meals from available ingredients,1,Dexterity;Intellect,,
+Stealth (basic),Move quietly and hide in natural or simple environments,1,Agility;Dexterity,,
+Melee Weapons (basic),Use simple one-handed weapons such as clubs; knives; or spears,1,Strength;Agility,,
+Ranged Weapons (basic),Use simple thrown weapons or bows,1,Dexterity;Agility,,
+Social Interaction,Basic conversation; persuasion; and reading simple social cues,1,Charisma;Intuition,,
+Shield Use,Block and fight effectively with a shield,3,Strength;Agility,fighter,
+Tactics,Small-unit tactics; positioning; and battlefield reading,3,Intellect;Intuition,fighter,
+Mounted Combat,Fight effectively from horseback or mounts,3,Agility;Strength,fighter,
+Intimidation,Use threats; presence; or force to break morale,3,Strength;Bravery;Charisma,fighter,
+Unarmed Combat,Holds; throws; pins; and joint locks,3,Strength;Agility,fighter,
+Lockpicking,Open mechanical locks and simple security devices,3,Dexterity;Intellect,thief,
+Deception,Lie convincingly and use misdirection,3,Intellect;Charisma,thief,
+Streetwise,Navigate urban underworlds and local contacts,3,Intuition;Charisma,thief,
+Disguise,Alter appearance and mannerisms to avoid recognition,3,Charisma;Dexterity,thief,
+Sleight of Hand,Pickpocket; palm objects; and perform minor tricks,3,Dexterity,thief,
+Poisons,Prepare and deliver toxins and venoms,3,Intellect;Dexterity,thief,
+Lore,Knowledge of legends; and general lore. Choose a broad category like Plants or Animal or Fungus.,1,Intellect,mage,
+Research,Locate and analyze information from libraries or archives,3,Intellect;Intuition,mage,
+Alchemy,Create and identify alchemical substances and potions,3,Intellect;Mysticism,mage,
+Occult / Arcane Lore,Knowledge of mystical and arcane subjects,3,Intellect;Mysticism;Intuition,mage,
+Spell: Necromancy,Arcane magic dealing with death; undeath; and spirits,3,Spell Casting,mage,
+Spell: Protection,Arcane wards; barriers; and defensive magic,3,Spell Casting,mage,
+Spell: Attack,Offensive arcane spells and destructive magic,3,Spell Casting,mage,
+Spell: Summoning,Call and bind creatures or entities from other planes,3,Spell Casting,mage,
+Spell: Ritualistic Magic,Complex multi-step arcane rituals and enchantments,3,Spell Casting,mage,
+Persuasion,Convince others through argument; charm; or reason,3,Charisma;Attraction,cleric,
+Diplomacy,Negotiate agreements and formal dealings,3,Intellect;Charisma,cleric,
+Leadership,Inspire and direct groups; especially under stress,3,Charisma;Bravery;Willpower,cleric,
+Medicine (basic),Treat wounds and illnesses beyond first aid,3,Intellect;Dexterity,cleric,
+Teaching / Instruction,Pass skills or knowledge on to others,3,Intellect;Charisma,cleric,
+Meditation,Focus; recover; and maintain spiritual discipline,3,Willpower;Intuition,cleric,
+Miracle: Necromancy,Divine magic involving spirits; death; and the afterlife,3,Miracle Casting,cleric,
+Miracle: Protection,Divine wards; blessings; and protective miracles,3,Miracle Casting,cleric,
+Miracle: Attack,Divine smiting and offensive miracles,3,Miracle Casting,cleric,
+Miracle: Summoning,Call divine servants; spirits; or celestial aid,3,Miracle Casting,cleric,
+Miracle: Ritualistic Magic,Sacred ceremonies; blessings; and complex divine rites,3,Miracle Casting,cleric,
+Bowyer,Creation of bows and their maintenance.,2,Intellect;Intuition,Mage;Fighter,Elf
+Fletcher,Creation of arrows,2,Dexterity;Intellect,,Elf
+Blacksmithing,Create manipulation and creation of general metal items,2,Strength;Agility,,
+Fire Building,Building of fire from raw amterials,2,Willpower,,
+Fishing,Catching and preparation of fish,2,Dexterity;Intuition,,
+Foraging,Gathering of plants for food and other uses.,2,Intellect,,
+Hunting,Stalking and hunting for food,2,Constitution;Intuition,,
+History,Historical knowledge of all kinds,1,Intellect,,
+Riding: Airborne,How to ride airborne creatures,3,Agility;Bravery,,
+Rope Expertise,Knowledge of knots; and use of rope in all situations.,1,Strength;Agility,,
+Armorer,Making and repair of armor,1,Strength;Intellect,,
+Weaponsmith,Crafting of primitive metal weapons or weapons of a mechanical design,2,Dexterity;Intellect,,`;
 
-// Fantasy-only genre skills (data/fantasy_skills.csv) — the Spell:/Miracle:
-// casting skills, extracted out of the magic-free baseline SKILLS above so
-// non-Fantasy genres never see them unless Magic is enabled. See GENRE_SKILLS
-// below and getActiveSkills().
-const FANTASY_SKILLS_CSV = `name,description,attribute,min_tl,focus,race
-Spell: Necromancy,Raising; controlling; or communicating with the dead,Mysticism;Intellect;Willpower,3,adept,
-Spell: Protection,Wards; shields; barriers; and defensive magic,Mysticism;Willpower,3,adept,
-Spell: Attack,Offensive spells; blasts; and direct damage magic,Mysticism;Intellect,3,adept,
-Spell: Summoning,Calling creatures; spirits; or entities,Mysticism;Willpower;Intellect,3,adept,
-Spell: Ritualistic Magic,Complex; time-consuming; high-power rituals,Mysticism;Intellect;Willpower,3,adept,
-Miracle: Necromancy,Communicating with or laying the dead to rest (divine framing),Mysticism;Willpower;Intuition,3,shepherd,
-Miracle: Protection,Blessings; wards; shields; and protective miracles,Mysticism;Willpower,3,shepherd,
-Miracle: Attack,Smiting; holy fire; or divine offensive power,Mysticism;Willpower;Bravery,3,shepherd,
-Miracle: Summoning,Calling divine servants; spirits; or allies,Mysticism;Willpower;Charisma,3,shepherd,
-Miracle: Ritualistic Magic,Ceremonies; blessings; consecrations; and high rituals,Mysticism;Willpower;Intellect,3,shepherd,`;
-
-const FANTASY_SKILLS = parseSkillsCsv(FANTASY_SKILLS_CSV);
+const FANTASY_ALL_SKILLS = parseSkillsCsv(FANTASY_SKILLS_CSV);
+const FANTASY_SKILLS = FANTASY_ALL_SKILLS.filter((s) => /^Spell:|^Miracle:/.test(s.name));
+const FANTASY_GENRE_SKILLS = FANTASY_ALL_SKILLS.filter((s) => !/^Spell:|^Miracle:/.test(s.name));
 
 // ---------------------------------------------------------------------------
 // Genres (data/{genre}_skills.csv, data/{genre}_melee.csv, data/{genre}_ranged.csv)
 // — Modern/Dystopian/SciFi/Apocalyptic start as empty scaffolds (see Phase 1
-// of the genre plan); Fantasy's genre-specific skills are FANTASY_SKILLS
-// above. A genre's skill list is SKILLS (the magic-free baseline) plus
-// whatever that genre contributes — see getActiveSkills().
+// of the genre plan). Every genre's skill list, Fantasy included, is fully
+// self-contained in its own file now — see GENRE_SKILLS and getActiveSkills().
 // ---------------------------------------------------------------------------
 
 // The 5 genre catalogs the app actually has Skills/Equipment/Race CSVs for.
@@ -1114,12 +1111,13 @@ const SCIFI_SKILLS = parseSkillsCsv(SCIFI_SKILLS_CSV);
 const APOCALYPTIC_SKILLS = parseSkillsCsv(APOCALYPTIC_SKILLS_CSV);
 const MORROW_PROJECT_SKILLS = parseSkillsCsv(MORROW_PROJECT_SKILLS_CSV);
 
-// Fantasy contributes nothing extra here: its non-magic skills already live
-// in the shared baseline SKILLS, and its magic skills (FANTASY_SKILLS) are
-// gated separately by magicEnabled below — NOT by genre — so Magic can be
-// "bent" onto any genre independent of which one is selected.
+// Fantasy's own non-magic skills are FANTASY_GENRE_SKILLS (see above, split
+// out of data/fantasy_skills.csv) — same role every other genre's own file
+// already has here. Its magic skills (FANTASY_SKILLS) are gated separately
+// by magicEnabled below — NOT by genre — so Magic can be "bent" onto any
+// genre independent of which one is selected.
 const GENRE_SKILLS = {
-  Fantasy: [],
+  Fantasy: FANTASY_GENRE_SKILLS,
   Modern: MODERN_SKILLS,
   Dystopian: DYSTOPIAN_SKILLS,
   SciFi: SCIFI_SKILLS,
@@ -1127,22 +1125,30 @@ const GENRE_SKILLS = {
   'morrow_project': MORROW_PROJECT_SKILLS,
 };
 
-// The Skills panel's actual list: every baseline (magic-free) Skill, plus the
-// active genre's own additions, plus FANTASY_SKILLS (the Spell:/Miracle:
+// The Skills panel's actual list: the selected genre's own full skill list
+// (no more shared data/skills.csv baseline — every genre, Fantasy included,
+// owns its complete list now), plus FANTASY_SKILLS (the Spell:/Miracle:
 // casting skills) whenever Magic is enabled, plus PSYCHIC_POWERS whenever
 // Psychic is enabled — neither gated by genre, so either can be "bent" onto
-// any genre independent of which one is selected.
-function getActiveSkills(genre, magicEnabled, psychicEnabled) {
-  return SKILLS.concat(GENRE_SKILLS[genre] || [])
+// any genre independent of which one is selected. Finally filtered so a
+// skill never shows above the character's own Tech Level — techLevel is
+// optional (omit it, or pass null, to skip that filter).
+function getActiveSkills(genre, magicEnabled, psychicEnabled, techLevel) {
+  const list = (GENRE_SKILLS[genre] || [])
     .concat(magicEnabled ? FANTASY_SKILLS : [])
     .concat(psychicEnabled ? PSYCHIC_POWERS : []);
+  return techLevel == null ? list : list.filter((s) => (s.minTl || 0) <= techLevel);
 }
 
 // Every Skill across every genre, regardless of which is currently active —
-// used only to pre-seed a fresh character's skillSpend ledger so switching
-// genre (or toggling Magic/Psychic) later never loses track of a skill's
-// spend because its ledger entry didn't exist yet.
-const ALL_SKILLS = SKILLS.concat(FANTASY_SKILLS, MODERN_SKILLS, DYSTOPIAN_SKILLS, SCIFI_SKILLS, APOCALYPTIC_SKILLS, MORROW_PROJECT_SKILLS, PSYCHIC_POWERS);
+// used only to pre-seed a fresh character's skillSpend ledger (and to total
+// up actual class-pool spend — see getClassWeaponPointsUsed/
+// getClassSkillPointsUsed below) so switching genre (or toggling Magic/
+// Psychic) later never loses track of a skill's spend because its ledger
+// entry didn't exist yet. Unfiltered by Tech Level on purpose — spend
+// already made stays counted even if the player later drops to a Tech
+// Level where that skill wouldn't currently be offered.
+const ALL_SKILLS = FANTASY_GENRE_SKILLS.concat(FANTASY_SKILLS, MODERN_SKILLS, DYSTOPIAN_SKILLS, SCIFI_SKILLS, APOCALYPTIC_SKILLS, MORROW_PROJECT_SKILLS, PSYCHIC_POWERS);
 
 // A skill with any Race listed only ever appears in the Race tab (never a
 // class tab or General), and a class tab only shows skills explicitly
@@ -1169,13 +1175,27 @@ function pickSpendableClass(character) {
   return getActiveClasses(character.genre).find((cls) => getClassSkillPointsAvailable(character, cls) > 0) || character.focus;
 }
 
+// A class-tagged skill still shows only on its own tab(s) (see
+// isSkillEligibleForClass) — this just lets the purchase itself draw from
+// ANY Expertise's pool, not only the one the skill happens to be tagged
+// for: pay from the tab's own class when it actually has points (the
+// common case, so nothing looks different), otherwise fall back to
+// whichever other class does, same as General/Race skills already do.
+function pickSpendableClassForTab(character, tabClass) {
+  if (getClassSkillPointsAvailable(character, tabClass) > 0) return tabClass;
+  return pickSpendableClass(character);
+}
+
 // True if the character's Focus or Race matches the skill's bonus lists.
 function skillMatchesCharacter(character, skill) {
   return skill.focus.includes(character.focus) || skill.race.includes(character.race);
 }
 
+// A General skill (no Focus, no Race) always gets the bonus rate — it's
+// nobody's specialty to be "off-Focus" for, so there's no reduced rate to
+// apply.
 function getSkillRate(character, skill) {
-  return skillMatchesCharacter(character, skill) ? SKILL_BONUS_RATE : SKILL_BASE_RATE;
+  return (isSkillGeneral(skill) || skillMatchesCharacter(character, skill)) ? SKILL_BONUS_RATE : SKILL_BASE_RATE;
 }
 
 // A skill's first rank is auto-granted (and locked) when Focus or Race matches.
@@ -1347,11 +1367,12 @@ function toggleSpecialForClass(character, special, cls) {
   const target = owned ? 0 : 1;
   setLedgerRankForClass(character.specialSpend, special.name, cls, target, getClassSkillPointsAvailable(character, cls));
   // "Extra Spell"/"Blessing of Miracles" grant +1 grimoire slot for every
-  // Adept/Shepherd dot gained AFTER the special is acquired (not retroactive) —
-  // record the rank at the moment ownership actually starts.
+  // spellcasting/miraclecasting-class dot gained AFTER the special is
+  // acquired (not retroactive) — record the rank at the moment ownership
+  // actually starts.
   if (!owned && isSpecialOwned(character, special)) {
-    if (special.name === 'Extra Spell') character.extraSpellBaseRank = character.classDots.Adept || 0;
-    else if (special.name === 'Blessing of Miracles') character.extraMiracleBaseRank = character.classDots.Shepherd || 0;
+    if (special.name === 'Extra Spell') character.extraSpellBaseRank = character.classDots[getSpellcastingClass(character.genre)] || 0;
+    else if (special.name === 'Blessing of Miracles') character.extraMiracleBaseRank = character.classDots[getMiraclecastingClass(character.genre)] || 0;
   }
 }
 
@@ -1402,98 +1423,98 @@ function parseCsvWithHeader(csv) {
   });
 }
 
-const FANTASY_SPELLS_CSV = `"id","school","name","cost","Dots Reqd","defy","clock","crutch","full_description"
-"A01","Attack","The Coruscating Coffin","1d4","1","none","","","A coffin of white fire clamps shut on one visible creature within 120 feet. Deal Physical damage equal to the result. Extra targets in range split that total. Ordinary cover does not hide anyone you can already see. Only Magical Deflect against Spells: Attack reduces this. You may instead deal Mental damage; only Magical Deflect against Mental damage reduces that form. Instant."
-"A02","Attack","The Thunderous Indictment","1d6","3","none","","","You speak a verdict and the air answers as a hammer. One visible creature within 100 feet takes Physical damage equal to the result. Extra targets split the total. Only Magical Deflect against Spells: Attack reduces this. You may instead deal Mental damage; only Magical Deflect against Mental damage reduces that form. Instant."
-"A03","Attack","Brand of the Waiting Spark","1d6","4","none","","","A dim sigil settles on a visible creature within 60 feet. At the start of their next turn the sigil bursts and deals Physical damage equal to the result. Extra targets split the delayed total. Magical Deflect against Spells: Attack can spend itself against the brand before it opens. You may instead deal Mental damage. Instant once it discharges."
-"A04","Attack","Chorus of Splintered Nerves","1d6","4","none","","","False pain sings along the nerves of a visible creature within 40 feet. Deal Mental damage equal to the result. This does not Control them. Extra targets split the total. Only Magical Deflect against Mental damage reduces this. Instant."
-"A05","Attack","The Black Radiance","1d8","6","none","","","Darkness that still burns finds a creature you can hear within 60 feet. You need not see them. Deal Physical damage equal to the result. Extra targets split the total. Only Magical Deflect against Spells: Attack reduces this. You may instead deal Mental damage. Instant."
-"A06","Attack","Damnation of the Inward Citadel","1d8","7","Willpower, and only if you spent 8 or more dots of Spell skill","","","You unbar the doors inside a visible creature within 60 feet. Deal Mental damage equal to the result. Extra targets split the total. Only Magical Deflect against Mental damage reduces this. If a target's Mental track is 0 or below, they are Controlled for a number of rounds equal to the Mental damage they actually took. They obey non-suicidal physical orders. They will not cast or plan for you. No chant is required."
-"A07","Attack","The Particular Pyre","1d10","9","Constitution, and only if you spent 8 or more dots of Spell skill","","","A narrow column of heat finds a visible creature within 80 feet. Deal Physical damage equal to the result. After Magical Deflect against Spells: Attack and any Defy, leftover damage may be moved onto one other visible creature. You may instead deal Mental damage. Instant."
-"A08","Attack","The Last Account","1d10","10","Constitution if Physical damage, Willpower if Mental damage — and only if you spent 8 or more dots of Spell skill","","","Choose Physical damage or Mental damage when you cast. One visible creature takes that damage equal to the result. Extra targets split the total. Matching Magical Deflect reduces it: Spells: Attack for Physical damage, or Mental damage for Mental damage. If this drops that track to 0, rest and ordinary medicine cannot restore it. Only magic or miracle can."
-"A09","Attack","Decree of Ligneous Dissolution","1d12","12","none","","","Living wood, leaf, and fungus forget they were ever whole. Non-magical plant and fungus in a number of 5-foot cubes equal to the result, within 100 feet, slough to ash. You may instead spend the result as Physical damage against plant creatures in range, split if several. Enchanted plants are untouched. Only Magical Deflect against Spells: Attack reduces damage from this working."
-"A10","Attack","The Wind of Final Repose","1d20","18","Constitution, and only if you spent 8 or more dots of Spell skill","","","A soundless bloom of still air opens in a 20-foot radius at a point within 200 feet. Living creatures in the radius split Physical damage equal to the result. A creature dropped to 0 Physical by this working sleeps until magic or miracle wakes them, or until they take any new Physical damage. Only Magical Deflect against Spells: Attack reduces this. You may instead deal Mental damage."
-"A11","Attack","The Quiet Needle","1d4","1","none","","","A hair of light finds one visible creature within 40 feet. Deal Physical damage equal to the result. Extra targets split that total. Only Magical Deflect against Spells: Attack reduces this. You may instead deal Mental damage; only Magical Deflect against Mental damage reduces that form. Instant."
-"A12","Attack","Ash on the Tongue","1d6","3","none","","","A visible creature within 60 feet tastes funeral ash. Deal Mental damage equal to the result. Extra targets split that total. This does not Control them. Only Magical Deflect against Mental damage reduces this. Instant."
-"A13","Attack","The Hearth-Spite","1d6","4","none","","","A coal-bright spark strikes one visible creature within 80 feet. Deal Physical damage equal to the result. Extra targets split that total. Only Magical Deflect against Spells: Attack or Magical Deflect against Spells: Elementalism reduces this. You may instead deal Mental damage. Instant."
-"P01","Protection","Aegis of Mortal Hide","1d4","1","none","","","Willing creatures, worn gear, a mount, a wagon, or one doorway within 30 feet. Split the result. Each subject gains Physical Deflect against Physical damage from weapons, falls, claws, weather, and ordinary fire. Ablative. Lasts a number of hours equal to dots of Spell skill spent. This does not stop Spells or Miracles, and it does not restore a lost track. You may instead grant Mental Deflect against Mental damage and mental maladies. Only magic or miracle ends it early."
-"P02","Protection","Pall of Threefold Refraction","1d6","3","none","","","Willing creatures within 30 feet. Split the result. When you cast, choose Magical Deflect against Spells: Attack or Magical Deflect against Spells: Elementalism. Each subject gains that Deflect equal to their share. Full value on every matching hit. Lasts a number of rounds equal to dots of Spell skill spent."
-"P03","Protection","Veil of the Inner Citadel","1d6","4","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Mental Deflect against Mental damage and mental maladies. Ablative. Lasts a number of hours equal to dots of Spell skill spent. This does not lift Control already in effect, and it does not restore a lost track. Only magic or miracle ends it early."
-"P04","Protection","Bastion of the Named House","1d8","6","none","","","One building you stand in. When you finish, choose one school: Spells: Attack, Spells: Elementalism, Spells: Illusion, or Spells: Necromancy. The building gains Magical Deflect against that school equal to the result. Full value on each matching strike. Lasts a number of rounds equal to dots of Spell skill spent."
-"P05","Protection","The Closed Eye","1d8","7","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Magical Deflect against Spells: Illusion and against information magic, including scrying, Flame Scrying, Elemental Spy, and forced questions, equal to their share. Full value. Lasts a number of rounds equal to dots of Spell skill spent."
-"P06","Protection","Pall of the Quiet Blood","1d10","9","none","","","Willing creatures within 30 feet. Split the result. When you cast, choose Physical Deflect against Physical damage, both mundane and Spells: Attack, or Physical Deflect against poison and toxin. Ablative. Lasts a number of hours equal to dots of Spell skill spent. You may instead grant Mental Deflect against Mental damage and mental maladies. This does not cure a disease already seated. Only magic or miracle ends it early."
-"P07","Protection","Veil of the Iron Hour","1d10","10","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Mental Deflect against Mental damage, mental maladies, and Miracles: Spirit that deal Mental damage. Ablative. Lasts a number of hours equal to dots of Spell skill spent. Only magic or miracle ends it early."
-"P08","Protection","Aegis of the Deep Lung","1d12","12","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Physical Deflect usable only against drowning, smoke, vacuum, poison, toxin, and inhaled disease. Ablative. Lasts a number of hours equal to dots of Spell skill spent. This does not cure a disease already seated. You may instead grant Mental Deflect against mental maladies."
-"P09","Protection","Wardpact of the March","1d12","13","none","","","A road, bridge, or trail you stand on, up to 10 feet of length per point of the result. Anyone you name who stays on that stretch shares one pool. When you cast, choose Physical Deflect against Physical damage, or Magical Deflect against Spells: Transmutation. Physical Deflect is ablative and lasts a number of hours equal to dots of Spell skill spent. Magical Deflect is full value and lasts a number of rounds equal to dots of Spell skill spent. You may set Physical Deflect as Mental Deflect against Mental damage and mental maladies instead."
+const FANTASY_SPELLS_CSV = `"id","school","name","cost","Dots Reqd","defy","clock","Components","full_description"
+"A01","Attack","The Coruscating Coffin","1d4","1","none","","","A coffin of white fire clamps shut on one visible creature within 120 feet. Deal Physical damage equal to the Shred. Extra targets in range split that total. Ordinary cover does not hide anyone you can already see. Only Magical Deflect against Spells: Attack reduces this. You may instead deal Mental damage; only Magical Deflect against Mental damage reduces that form. Instant."
+"A02","Attack","The Thunderous Indictment","1d6","3","none","","","You speak a verdict and the air answers as a hammer. One visible creature within 100 feet takes Physical damage equal to the Shred. Extra targets split the total. Only Magical Deflect against Spells: Attack reduces this. You may instead deal Mental damage; only Magical Deflect against Mental damage reduces that form. Instant."
+"A03","Attack","Brand of the Waiting Spark","1d6","4","none","","","A dim sigil settles on a visible creature within 60 feet. At the start of their next turn the sigil bursts and deals Physical damage equal to the Shred. Extra targets split the delayed total. Magical Deflect against Spells: Attack can spend itself against the brand before it opens. You may instead deal Mental damage. Instant once it discharges."
+"A04","Attack","Chorus of Splintered Nerves","1d6","4","none","","","False pain sings along the nerves of a visible creature within 40 feet. Deal Mental damage equal to the Shred. This does not Control them. Extra targets split the total. Only Magical Deflect against Mental damage reduces this. Instant."
+"A05","Attack","The Black Radiance","1d8","6","none","","","Darkness that still burns finds a creature you can hear within 60 feet. You need not see them. Deal Physical damage equal to the Shred. Extra targets split the total. Only Magical Deflect against Spells: Attack reduces this. You may instead deal Mental damage. Instant."
+"A06","Attack","Damnation of the Inward Citadel","1d8","7","Willpower, and only if you spent 8 or more dots of Spell skill","","","You unbar the doors inside a visible creature within 60 feet. Deal Mental damage equal to the Shred. Extra targets split the total. Only Magical Deflect against Mental damage reduces this. If a target's Mental track is 0 or below, they are Controlled for a number of rounds equal to the Mental damage they actually took. They obey non-suicidal physical orders. They will not cast or plan for you. No chant is required."
+"A07","Attack","The Particular Pyre","1d10","9","Constitution, and only if you spent 8 or more dots of Spell skill","","","A narrow column of heat finds a visible creature within 80 feet. Deal Physical damage equal to the Shred. After Magical Deflect against Spells: Attack and any Defy, leftover damage may be moved onto one other visible creature. You may instead deal Mental damage. Instant."
+"A08","Attack","The Last Account","1d10","10","Constitution if Physical damage, Willpower if Mental damage — and only if you spent 8 or more dots of Spell skill","","","Choose Physical damage or Mental damage when you cast. One visible creature takes that damage equal to the Shred. Extra targets split the total. Matching Magical Deflect reduces it: Spells: Attack for Physical damage, or Mental damage for Mental damage. If this drops that track to 0, rest and ordinary medicine cannot restore it. Only magic or miracle can."
+"A09","Attack","Decree of Ligneous Dissolution","1d12","12","none","","","Living wood, leaf, and fungus forget they were ever whole. Non-magical plant and fungus in a number of 5-foot cubes equal to the Shred. within 100 feet, slough to ash. You may instead spend the Shred as Physical damage against plant creatures in range, split if several. Enchanted plants are untouched. Only Magical Deflect against Spells: Attack reduces damage from this working."
+"A10","Attack","The Wind of Final Repose","1d20","18","Constitution, and only if you spent 8 or more dots of Spell skill","","","A soundless bloom of still air opens in a 20-foot radius at a point within 200 feet. Living creatures in the radius split Physical damage equal to the Shred. A creature dropped to 0 Physical by this working sleeps until magic or miracle wakes them, or until they take any new Physical damage. Only Magical Deflect against Spells: Attack reduces this. You may instead deal Mental damage."
+"A11","Attack","The Quiet Needle","1d4","1","none","","","A hair of light finds one visible creature within 40 feet. Deal Physical damage equal to the Shred. Extra targets split that total. Only Magical Deflect against Spells: Attack reduces this. You may instead deal Mental damage; only Magical Deflect against Mental damage reduces that form. Instant."
+"A12","Attack","Ash on the Tongue","1d6","3","none","","","A visible creature within 60 feet tastes funeral ash. Deal Mental damage equal to the Shred. Extra targets split that total. This does not Control them. Only Magical Deflect against Mental damage reduces this. Instant."
+"A13","Attack","The Hearth-Spite","1d6","4","none","","","A coal-bright spark strikes one visible creature within 80 feet. Deal Physical damage equal to the Shred. Extra targets split that total. Only Magical Deflect against Spells: Attack or Magical Deflect against Spells: Elementalism reduces this. You may instead deal Mental damage. Instant."
+"P01","Protection","Aegis of Mortal Hide","1d4","1","none","","","Willing creatures, worn gear, a mount, a wagon, or one doorway within 30 feet. Split the Shred. Each subject gains Physical Deflect against Physical damage from weapons, falls, claws, weather, and ordinary fire. Ablative. Lasts a number of hours equal to dots of Spell skill spent. This does not stop Spells or Miracles, and it does not restore a lost track. You may instead grant Mental Deflect against Mental damage and mental maladies. Only magic or miracle ends it early."
+"P02","Protection","Pall of Threefold Refraction","1d6","3","none","","","Willing creatures within 30 feet. Split the Shred. When you cast, choose Magical Deflect against Spells: Attack or Magical Deflect against Spells: Elementalism. Each subject gains that Deflect equal to their share. Full value on every matching hit. Lasts a number of rounds equal to dots of Spell skill spent."
+"P03","Protection","Veil of the Inner Citadel","1d6","4","none","","","Willing creatures within 30 feet. Split the Shred. Each subject gains Mental Deflect against Mental damage and mental maladies. Ablative. Lasts a number of hours equal to dots of Spell skill spent. This does not lift Control already in effect, and it does not restore a lost track. Only magic or miracle ends it early."
+"P04","Protection","Bastion of the Named House","1d8","6","none","","","One building you stand in. When you finish, choose one school: Spells: Attack, Spells: Elementalism, Spells: Illusion, or Spells: Necromancy. The building gains Magical Deflect against that school equal to the Shred. Full value on each matching strike. Lasts a number of rounds equal to dots of Spell skill spent."
+"P05","Protection","The Closed Eye","1d8","7","none","","","Willing creatures within 30 feet. Split the Shred. Each subject gains Magical Deflect against Spells: Illusion and against information magic, including scrying, Flame Scrying, Elemental Spy, and forced questions, equal to their share. Full value. Lasts a number of rounds equal to dots of Spell skill spent."
+"P06","Protection","Pall of the Quiet Blood","1d10","9","none","","","Willing creatures within 30 feet. Split the Shred. When you cast, choose Physical Deflect against Physical damage, both mundane and Spells: Attack, or Physical Deflect against poison and toxin. Ablative. Lasts a number of hours equal to dots of Spell skill spent. You may instead grant Mental Deflect against Mental damage and mental maladies. This does not cure a disease already seated. Only magic or miracle ends it early."
+"P07","Protection","Veil of the Iron Hour","1d10","10","none","","","Willing creatures within 30 feet. Split the Shred. Each subject gains Mental Deflect against Mental damage, mental maladies, and Miracles: Spirit that deal Mental damage. Ablative. Lasts a number of hours equal to dots of Spell skill spent. Only magic or miracle ends it early."
+"P08","Protection","Aegis of the Deep Lung","1d12","12","none","","","Willing creatures within 30 feet. Split the Shred. Each subject gains Physical Deflect usable only against drowning, smoke, vacuum, poison, toxin, and inhaled disease. Ablative. Lasts a number of hours equal to dots of Spell skill spent. This does not cure a disease already seated. You may instead grant Mental Deflect against mental maladies."
+"P09","Protection","Wardpact of the March","1d12","13","none","","","A road, bridge, or trail you stand on, up to 10 feet of length per point of the Shred. Anyone you name who stays on that stretch shares one pool. When you cast, choose Physical Deflect against Physical damage, or Magical Deflect against Spells: Transmutation. Physical Deflect is ablative and lasts a number of hours equal to dots of Spell skill spent. Magical Deflect is full value and lasts a number of rounds equal to dots of Spell skill spent. You may set Physical Deflect as Mental Deflect against Mental damage and mental maladies instead."
 "P10","Protection","Bastion of the Closed County","1d20","17","none","","","One building, or a circuit of buildings you can walk in an hour. When you finish, choose the protection: Physical Deflect against Physical damage, ablative, for a number of hours equal to dots of Spell skill spent; Magical Deflect against one Spell school you name, full value, for a number of rounds equal to dots of Spell skill spent; or Magical Deflect against Miracles: Warding and Miracles: Spirit, full value, for that many rounds. You may set Physical Deflect as Mental Deflect against Mental damage and mental maladies. Split a Deflect pool among the structures if you wish. The Living Well or The Vessel That Drinks may hitch only to an ablative pool."
-"P11","Protection","The Thin Mantle","1d4","1","none","","","One willing creature you touch gains Physical Deflect equal to the result against Physical damage from weapons and falls. Ablative. Lasts a number of hours equal to dots of Spell skill spent. You may instead grant Mental Deflect against Mental damage and mental maladies. This does not restore a lost track."
-"P12","Protection","Salt Against the Crawl","1d6","3","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Physical Deflect against poison, toxin, and mundane disease equal to their share. Ablative. Lasts a number of hours equal to dots of Spell skill spent. This does not cure a disease already seated. You may instead grant Mental Deflect against mental maladies."
-"P13","Protection","Glass Against the Lie","1d8","6","none","","","Willing creatures within 30 feet. Split the result. Each subject gains Magical Deflect against Spells: Illusion equal to their share. Full value on every matching working. Lasts a number of rounds equal to dots of Spell skill spent."
-"E01","Elementalism","Elemental Spy","1d4","1","none","","","You teach a candle-flame, a stone, a cup of water, or a thread of smoke to keep your place. As a main action you may see and hear as if you stood there. Lasts a number of hours equal to the result, or until the focus is destroyed."
-"E02","Elementalism","Flame Scrying","1d4","1","none","","","While you stay still, every open flame within 10 feet per point of the result becomes a window. You may look and listen through one flame at a time. Lasts a number of minutes equal to the result."
+"P11","Protection","The Thin Mantle","1d4","1","none","","","One willing creature you touch gains Physical Deflect equal to the Shred against Physical damage from weapons and falls. Ablative. Lasts a number of hours equal to dots of Spell skill spent. You may instead grant Mental Deflect against Mental damage and mental maladies. This does not restore a lost track."
+"P12","Protection","Salt Against the Crawl","1d6","3","none","","","Willing creatures within 30 feet. Split the Shred. Each subject gains Physical Deflect against poison, toxin, and mundane disease equal to their share. Ablative. Lasts a number of hours equal to dots of Spell skill spent. This does not cure a disease already seated. You may instead grant Mental Deflect against mental maladies."
+"P13","Protection","Glass Against the Lie","1d8","6","none","","","Willing creatures within 30 feet. Split the Shred. Each subject gains Magical Deflect against Spells: Illusion equal to their share. Full value on every matching working. Lasts a number of rounds equal to dots of Spell skill spent."
+"E01","Elementalism","Elemental Spy","1d4","1","none","","","You teach a candle-flame, a stone, a cup of water, or a thread of smoke to keep your place. As a main action you may see and hear as if you stood there. Lasts a number of hours equal to the Shred. or until the focus is destroyed."
+"E02","Elementalism","Flame Scrying","1d4","1","none","","","While you stay still, every open flame within 10 feet per point of the Shred becomes a window. You may look and listen through one flame at a time. Lasts a number of minutes equal to the Shred."
 "E03","Elementalism","Query of Stone and Tide","1d6","3","none","","","Set your palm to earth, stone, water, or open air. Ask one question that mass could have witnessed in the last day. The answer is short and without poetry. Enchanted matter keeps silent. Instant."
-"E04","Elementalism","Decree of Needed Substance","1d6","4","none","","","You pull a useful measure of one mundane element: one bucket of water, one person-minute of air, one torch-flame, or one 5-foot square of packed earth per point of the result. Water and earth remain. Flame lasts a number of hours equal to dots of Spell skill spent unless it is fed. Air is spent as it is breathed."
-"E05","Elementalism","Elemental Favor","1d6","4","none","","","At the end of the round, a number of 5-foot cubes equal to the result, made of non-magical earth, stone, water, fire, or air, move or reshape as you ask. If the new shape would stand without magic, it remains as ordinary matter. If it would not, it holds until magic or miracle takes it off."
-"E06","Elementalism","The Unpaid Messenger","1d8","6","none","","","A small elemental, whether a walking coal, a wet shape, a dust-thing, or a breath, does one concrete job it can finish in a number of minutes equal to the result. It may carry a letter, hold a door, or quench a hearth. It will not fight. Then it is gone."
-"E07","Elementalism","Pact of Stone and Sea","1d8","7","none","","","Willing visible creatures share this working; split the duration if several are named. Each ignores mundane harm from one named element, earth, fire, water, or wind, including drowning, burial, or ordinary burning. This is not Deflect. Spells and Miracles still harm them. Lasts a number of minutes equal to the result."
-"E08","Elementalism","The Burrower Below","1d10","9","none","","","The ground remembers a hallway. Open a tunnel a number of feet equal to the result through natural earth or stone, or one-fifth of that length through worked stone. You choose the path. The hole remains as ordinary earthwork."
-"E09","Elementalism","Elemental Vallation","1d12","12","none","","","Raise a wall a number of feet long equal to the result, 10 feet high, within 80 feet. An earth wall must be dug; a man-sized hole needs 10 plus dots of Spell skill spent in damage from tools. A creature forcing a fire, water, or air wall takes Physical damage equal to the result, split if several cross together. Only Magical Deflect against Spells: Elementalism stops that crossing damage. You may instead deal Mental damage. The wall lasts a number of rounds equal to dots of Spell skill spent."
-"E10","Elementalism","Like the Stones","1d12","13","none","","","You need not breathe for a number of rounds equal to the result. Choose one form. Stone grants Physical Deflect against Physical damage equal to the result, ablative, lasting a number of hours equal to the result; you may set this as Mental Deflect against Mental damage and mental maladies instead. Water lets you pass any gap a mouse could use for a number of rounds equal to dots of Spell skill spent. Air lets you fly at walking speed for that many rounds. Fire deals 1 mundane Physical damage to creatures in reach at the start of your turn for that many rounds; Physical Deflect can stop that, and Magical Deflect cannot."
-"E11","Elementalism","The Honest Wick","1d4","1","none","","","A torch, lamp, or small hearth you touch burns clean for a number of hours equal to the result without new fuel. Wind may still put it out. This does not deal damage."
-"E12","Elementalism","Where the Water Sleeps","1d4","1","none","","","You know the direction of the nearest natural water within a number of feet equal to 50 times the result. You do not learn its depth or its purity."
-"E13","Elementalism","The Patient Ember","1d6","4","none","","","Non-magical fire in a number of 5-foot squares equal to the result, within 40 feet, sinks to coals for a number of minutes equal to dots of Spell skill spent. It does not spread during that time. Enchanted fire is untouched."
-"T01","Transmutation","Velocitous Imbuement of the Unburdened Step","1d4","1","none","","","Willing creatures you touch, or that stand within 30 feet, double their ground speed. They may run on walls or beams if they finish on stable footing. Lasts a number of rounds equal to the result. Extra targets split the result for duration."
-"T02","Transmutation","The Excellent Transpicuous Transformation","1d6","3","none","","","Willing creatures within 30 feet, and the gear they wear, turn glass-clear. Blows against them take a penalty of 4, or your table's equivalent. A charge, a hard fall, or a gestured spell ends it for that person. Lasts a number of minutes equal to the result, split if several are named."
-"T03","Transmutation","Like the Borrowed Hide","1d6","4","none","","","Willing creatures within 30 feet each gain one gift: the breath of a fish, the grip of a beetle, the eyes of a cat, or Physical Deflect against Physical damage equal to their share of the result. That Deflect is ablative and lasts a number of hours equal to dots of Spell skill spent. You may set it as Mental Deflect against Mental damage and mental maladies. Breath, grip, and eye last a number of minutes equal to the result. This does not restore a lost track."
-"T04","Transmutation","Conjunction of the Inexorable Step","1d8","6","none","","","You and willing creatures within 30 feet appear at a visible, safe, solid point within a number of feet equal to 10 times the result. Extra bodies split the distance. Instant."
-"T05","Transmutation","The Long Unpacking of the Form","1d8","7","none","","","Willing targets become mundane animals no larger than themselves. Gear folds inward. Speech or a killing blow ends the change for that person. Lasts a number of minutes equal to the result, split if several are named."
+"E04","Elementalism","Decree of Needed Substance","1d6","4","none","","","You pull a useful measure of one mundane element: one bucket of water, one person-minute of air, one torch-flame, or one 5-foot square of packed earth per point of the Shred. Water and earth remain. Flame lasts a number of hours equal to dots of Spell skill spent unless it is fed. Air is spent as it is breathed."
+"E05","Elementalism","Elemental Favor","1d6","4","none","","","At the end of the round, a number of 5-foot cubes equal to the Shred. made of non-magical earth, stone, water, fire, or air, move or reshape as you ask. If the new shape would stand without magic, it remains as ordinary matter. If it would not, it holds until magic or miracle takes it off."
+"E06","Elementalism","The Unpaid Messenger","1d8","6","none","","","A small elemental, whether a walking coal, a wet shape, a dust-thing, or a breath, does one concrete job it can finish in a number of minutes equal to the Shred. It may carry a letter, hold a door, or quench a hearth. It will not fight. Then it is gone."
+"E07","Elementalism","Pact of Stone and Sea","1d8","7","none","","","Willing visible creatures share this working; split the duration if several are named. Each ignores mundane harm from one named element, earth, fire, water, or wind, including drowning, burial, or ordinary burning. This is not Deflect. Spells and Miracles still harm them. Lasts a number of minutes equal to the Shred."
+"E08","Elementalism","The Burrower Below","1d10","9","none","","","The ground remembers a hallway. Open a tunnel a number of feet equal to the Shred through natural earth or stone, or one-fifth of that length through worked stone. You choose the path. The hole remains as ordinary earthwork."
+"E09","Elementalism","Elemental Vallation","1d12","12","none","","","Raise a wall a number of feet long equal to the Shred. 10 feet high, within 80 feet. An earth wall must be dug; a man-sized hole needs 10 plus dots of Spell skill spent in damage from tools. A creature forcing a fire, water, or air wall takes Physical damage equal to the Shred. split if several cross together. Only Magical Deflect against Spells: Elementalism stops that crossing damage. You may instead deal Mental damage. The wall lasts a number of rounds equal to dots of Spell skill spent."
+"E10","Elementalism","Like the Stones","1d12","13","none","","","You need not breathe for a number of rounds equal to the Shred. Choose one form. Stone grants Physical Deflect against Physical damage equal to the Shred. ablative, lasting a number of hours equal to the Shred. you may set this as Mental Deflect against Mental damage and mental maladies instead. Water lets you pass any gap a mouse could use for a number of rounds equal to dots of Spell skill spent. Air lets you fly at walking speed for that many rounds. Fire deals 1 mundane Physical damage to creatures in reach at the start of your turn for that many rounds; Physical Deflect can stop that, and Magical Deflect cannot."
+"E11","Elementalism","The Honest Wick","1d4","1","none","","","A torch, lamp, or small hearth you touch burns clean for a number of hours equal to the Shred without new fuel. Wind may still put it out. This does not deal damage."
+"E12","Elementalism","Where the Water Sleeps","1d4","1","none","","","You know the direction of the nearest natural water within a number of feet equal to 50 times the Shred. You do not learn its depth or its purity."
+"E13","Elementalism","The Patient Ember","1d6","4","none","","","Non-magical fire in a number of 5-foot squares equal to the Shred. within 40 feet, sinks to coals for a number of minutes equal to dots of Spell skill spent. It does not spread during that time. Enchanted fire is untouched."
+"T01","Transmutation","Velocitous Imbuement of the Unburdened Step","1d4","1","none","","","Willing creatures you touch, or that stand within 30 feet, double their ground speed. They may run on walls or beams if they finish on stable footing. Lasts a number of rounds equal to the Shred. Extra targets split the Shred for duration."
+"T02","Transmutation","The Excellent Transpicuous Transformation","1d6","3","none","","","Willing creatures within 30 feet, and the gear they wear, turn glass-clear. Blows against them take a penalty of 4, or your table's equivalent. A charge, a hard fall, or a gestured spell ends it for that person. Lasts a number of minutes equal to the Shred. split if several are named."
+"T03","Transmutation","Like the Borrowed Hide","1d6","4","none","","","Willing creatures within 30 feet each gain one gift: the breath of a fish, the grip of a beetle, the eyes of a cat, or Physical Deflect against Physical damage equal to their share of the Shred. That Deflect is ablative and lasts a number of hours equal to dots of Spell skill spent. You may set it as Mental Deflect against Mental damage and mental maladies. Breath, grip, and eye last a number of minutes equal to the Shred. This does not restore a lost track."
+"T04","Transmutation","Conjunction of the Inexorable Step","1d8","6","none","","","You and willing creatures within 30 feet appear at a visible, safe, solid point within a number of feet equal to 10 times the Shred. Extra bodies split the distance. Instant."
+"T05","Transmutation","The Long Unpacking of the Form","1d8","7","none","","","Willing targets become mundane animals no larger than themselves. Gear folds inward. Speech or a killing blow ends the change for that person. Lasts a number of minutes equal to the Shred. split if several are named."
 "T06","Transmutation","Wardpact of Harmless Steel","1d10","9","none","","","A number of weapons within 60 feet equal to dots of Spell skill spent refuse to injure. Claws and teeth ignore this. Lasts until magic or miracle takes it off."
-"T07","Transmutation","The Jade Palanquin, Lesser","1d10","10","none","","","A floating seat of pale stone appears. Assign the result as people, counting 1 each, or as pounds, counting 100 each. It moves at walking speed. Lasts a number of hours equal to dots of Spell skill spent, or until someone strikes the seat in anger."
-"T08","Transmutation","Conjunction of the Second Pace","1d12","12","none","","","This works as Conjunction of the Inexorable Step, and then makes a second translation at once, using half the remaining result as feet times 10. Instant."
-"T09","Transmutation","Calculation of the Evoked Beast","1d20","16","none","","","You must spend at least 4 dots of Spell skill. The result is the allotment. Split it equally across Physique, Strength, Constitution, Agility, Dexterity, Intellect, Intuition, Magic, Bravery, Willpower, Charisma, Attraction, Hide, Instinct, Base Damage, Movement, and the beast's Stamina. Drop the remainder. One beast appears. A new cast dismisses the old beast. It lasts until it is slain, dismissed, or dawn."
-"T10","Transmutation","The Excellent Exchange of Mass","1d12","13","none","","","Swap two willing visible creatures within 10 feet per point of the result, or swap one willing creature and one unattended object of like bulk. Extra pairs split the range. Instant."
+"T07","Transmutation","The Jade Palanquin, Lesser","1d10","10","none","","","A floating seat of pale stone appears. Assign the Shred as people, counting 1 each, or as pounds, counting 100 each. It moves at walking speed. Lasts a number of hours equal to dots of Spell skill spent, or until someone strikes the seat in anger."
+"T08","Transmutation","Conjunction of the Second Pace","1d12","12","none","","","This works as Conjunction of the Inexorable Step, and then makes a second translation at once, using half the remaining Shred as feet times 10. Instant."
+"T09","Transmutation","Calculation of the Evoked Beast","1d20","16","none","","","You must spend at least 4 dots of Spell skill. The Shred is the allotment. Split it equally across Physique, Strength, Constitution, Agility, Dexterity, Intellect, Intuition, Magic, Bravery, Willpower, Charisma, Attraction, Hide, Instinct, Base Damage, Movement, and the beast's Stamina. Drop the remainder. One beast appears. A new cast dismisses the old beast. It lasts until it is slain, dismissed, or dawn."
+"T10","Transmutation","The Excellent Exchange of Mass","1d12","13","none","","","Swap two willing visible creatures within 10 feet per point of the Shred. or swap one willing creature and one unattended object of like bulk. Extra pairs split the range. Instant."
 "T11","Transmutation","The Mended Strap","1d4","1","none","","","One mundane object you touch, no larger than a door, has a break, tear, or loose joint made whole. This does not restore a magic item, a corpse, or living flesh. Instant."
-"T12","Transmutation","Light as Chaff","1d6","3","none","","","One willing creature you touch, and the gear they wear, weigh half as much for a number of minutes equal to the result. They are not harder to hit. Extra willing targets split the duration."
+"T12","Transmutation","Light as Chaff","1d6","3","none","","","One willing creature you touch, and the gear they wear, weigh half as much for a number of minutes equal to the Shred. They are not harder to hit. Extra willing targets split the duration."
 "T13","Transmutation","The Closed Mouth of Steel","1d8","6","none","","","One weapon within 30 feet cannot draw blood for a number of rounds equal to dots of Spell skill spent. Claws and teeth ignore this. You may name extra weapons up to dots of Spell skill spent; they share that duration."
-"N01","Necromancy","Query the Skull","1d4","1","none","","","Touch a corpse dead no more than a number of days equal to the result. It answers a number of short, literal questions equal to dots of Spell skill spent. The same corpse will not do this twice."
+"N01","Necromancy","Query the Skull","1d4","1","none","","","Touch a corpse dead no more than a number of days equal to the Shred. It answers a number of short, literal questions equal to dots of Spell skill spent. The same corpse will not do this twice."
 "N02","Necromancy","Terrible Liveliness","1d6","3","none","","","Undead already loyal to you, a number up to your dots of Spell skill, wear the faces they had in life. The mask lasts until you drop it, or until magic or miracle strips it."
-"N03","Necromancy","Smite the Dead","1d6","4","none","","","A pale shock strikes a point within 80 feet and fills a 20-foot radius. Split Physical damage equal to the result among undead only. Living creatures are untouched. Only Magical Deflect against Spells: Necromancy reduces this. You may instead deal Mental damage."
-"N04","Necromancy","Command the Hollow","1d8","6","Willpower, and only if you spent 8 or more dots of Spell skill","","","Deal Mental damage equal to the result to undead only, within 80 feet, and split it if several are named. Only Magical Deflect against Mental damage, or Magical Deflect against Spells: Necromancy, reduces this. An undead whose Mental track hits 0 is bound as if you had raised it. On a raising, every 5 points of the result add +1 to every rating on that husk, or buy one special: fearless, silent tread, tireless grip, semblance of life, or armored bones. They last until you raise a new batch, unless you pay 1 stamina for each old husk you keep."
-"N05","Necromancy","The Borrowed Pulse","1d6","4","none","","","A willing living donor you touch loses Physical equal to the result. A living or undead recipient you touch gains the same amount, up to their cap. You may be the donor. There are no unwilling targets. Extra donors or recipients split the result. This is a transfer, not a restoration. You may instead move Mental. Instant."
-"N06","Necromancy","Evocation of the Grave-Born Host","1d8","7","none","","","Touch intact corpses. Every 5 points of the result add +1 to every rating on that husk, or buy one special: fearless, silent tread, tireless grip, semblance of life, or armored bones. Several corpses split those steps. They last until you raise a new batch, unless you pay 1 stamina for each old husk you keep."
+"N03","Necromancy","Smite the Dead","1d6","4","none","","","A pale shock strikes a point within 80 feet and fills a 20-foot radius. Split Physical damage equal to the Shred among undead only. Living creatures are untouched. Only Magical Deflect against Spells: Necromancy reduces this. You may instead deal Mental damage."
+"N04","Necromancy","Command the Hollow","1d8","6","Willpower, and only if you spent 8 or more dots of Spell skill","","","Deal Mental damage equal to the Shred to undead only, within 80 feet, and split it if several are named. Only Magical Deflect against Mental damage, or Magical Deflect against Spells: Necromancy, reduces this. An undead whose Mental track hits 0 is bound as if you had raised it. On a raising, every 5 points of the Shred add +1 to every rating on that husk, or buy one special: fearless, silent tread, tireless grip, semblance of life, or armored bones. They last until you raise a new batch, unless you pay 1 stamina for each old husk you keep."
+"N05","Necromancy","The Borrowed Pulse","1d6","4","none","","","A willing living donor you touch loses Physical equal to the Shred. A living or undead recipient you touch gains the same amount, up to their cap. You may be the donor. There are no unwilling targets. Extra donors or recipients split the Shred. This is a transfer, not a restoration. You may instead move Mental. Instant."
+"N06","Necromancy","Evocation of the Grave-Born Host","1d8","7","none","","","Touch intact corpses. Every 5 points of the Shred add +1 to every rating on that husk, or buy one special: fearless, silent tread, tireless grip, semblance of life, or armored bones. Several corpses split those steps. They last until you raise a new batch, unless you pay 1 stamina for each old husk you keep."
 "N07","Necromancy","Final Death","1d10","9","Constitution, once, and only after the first failed attempt to heal them","","","Name visible living creatures, up to a number equal to dots of Spell skill spent. They cannot recover Physical by rest or ordinary medicine. Only magic or miracle restores them, or a successful Defy after that first failed healing. If they never try to heal, the ban lasts a number of rounds equal to dots of Spell skill spent. You may instead bar recovery of Mental."
 "N08","Necromancy","Festering Curse","1d10","10","Constitution — only if the target's relevant scores sit in a higher band than yours","","","Name visible living creatures, up to a number equal to dots of Spell skill spent. Food is ash. Water does not slake. Pleasures go numb. They take a penalty of 2 on social work. This deals no damage. You may instead lay the same curse as a mental malady. It lasts until magic or miracle takes it off, or until you lift it."
 "N09","Necromancy","Compel Flesh","1d12","12","Physique, at the start of each of their turns","","","Name living creatures or embodied undead, up to a number equal to dots of Spell skill spent, each within 100 feet. The body obeys non-suicidal physical orders. The mind is free. A successful Defy ends it for that body, and they take mundane Physical damage equal to your dots of Spell skill. Physical Deflect against Physical damage can reduce that damage. Magical Deflect cannot. If the working is not thrown off, it lasts a number of rounds equal to dots of Spell skill spent."
 "N10","Necromancy","Forgetting the Grave","1d12","13","none","","","Willing creatures, up to a number equal to dots of Spell skill spent, do not die for 1 plus dots of Spell skill spent rounds. When the working ends, the postponed collapse arrives unless The Borrowed Pulse has already paid it. This is a hold, not a restoration."
-"N11","Necromancy","The Grave-Sense","1d4","1","none","","","You know the direction of the nearest human corpse within a number of feet equal to 20 times the result. You do not learn its name or how it died."
-"N12","Necromancy","Dust on the Lid","1d6","4","none","","","One corpse you touch will not rise, and will not answer another working, for a number of hours equal to the result. A later working whose result beats this result may still take it."
-"N13","Necromancy","The Short Lease","1d8","7","none","","","Touch one intact corpse. It rises with +1 to every rating for every 5 points of the result, and it obeys simple orders. It falls still after a number of rounds equal to dots of Spell skill spent. It does not count as a kept host."
-"I01","Illusion","Phantasmal Mimesis","1d4","1","none","","","Fill a number of 5-foot cubes equal to the result, within 60 feet, with sight, sound, and smell. The cubes may sit together or apart. The image behaves as you intend while you can see it. Lasts a number of rounds equal to dots of Spell skill spent. A person with a hard reason to doubt may spend an action studying it, and then they know it is false. This does not deal damage."
+"N11","Necromancy","The Grave-Sense","1d4","1","none","","","You know the direction of the nearest human corpse within a number of feet equal to 20 times the Shred. You do not learn its name or how it died."
+"N12","Necromancy","Dust on the Lid","1d6","4","none","","","One corpse you touch will not rise, and will not answer another working, for a number of hours equal to the Shred. A later working whose Shred beats this Shred may still take it."
+"N13","Necromancy","The Short Lease","1d8","7","none","","","Touch one intact corpse. It rises with +1 to every rating for every 5 points of the Shred. and it obeys simple orders. It falls still after a number of rounds equal to dots of Spell skill spent. It does not count as a kept host."
+"I01","Illusion","Phantasmal Mimesis","1d4","1","none","","","Fill a number of 5-foot cubes equal to the Shred. within 60 feet, with sight, sound, and smell. The cubes may sit together or apart. The image behaves as you intend while you can see it. Lasts a number of rounds equal to dots of Spell skill spent. A person with a hard reason to doubt may spend an action studying it, and then they know it is false. This does not deal damage."
 "I02","Illusion","Damnation of the Sense","1d6","3","Intuition, and only if you spent 8 or more dots of Spell skill","","","Name visible creatures, up to a number equal to dots of Spell skill spent. One sense on each creature, sight, hearing, or touch, is lied to or blanked for a number of rounds equal to your dots of Spell skill. If they Defy, the lie lasts only until the end of their next turn. This does not deal damage."
-"I03","Illusion","The Excellent Crowd of No One","1d6","4","none","","","Willing creatures within 30 feet, up to a number equal to dots of Spell skill spent, are easy to miss by eye and ear. Touch, a careful search, a sprint, or an attack ends it for that person. Lasts a number of minutes equal to the result. This does not deal damage."
+"I03","Illusion","The Excellent Crowd of No One","1d6","4","none","","","Willing creatures within 30 feet, up to a number equal to dots of Spell skill spent, are easy to miss by eye and ear. Touch, a careful search, a sprint, or an attack ends it for that person. Lasts a number of minutes equal to the Shred. This does not deal damage."
 "I04","Illusion","The Inexorable Imputation","1d8","6","Intellect — only if the sentence is dangerous to believe","","","Speak one short sentence. Hearers within 40 feet treat it as true unless it is impossible. You may exempt a number of hearers up to your dots of Spell skill. The belief lasts until magic or miracle clears it. This does not deal damage."
-"I05","Illusion","Casting Forth the False Room","1d8","7","none","","","The space you stand in, up to 5 feet per point of the result on a side, looks and sounds like a different place of the same size. Lasts a number of minutes equal to dots of Spell skill spent. Anyone who tests a surface with real force sees through it. This does not deal damage."
-"I06","Illusion","Phantasmal Watchman","1d8","7","none","","","False figures, a number up to dots of Spell skill spent, each walk a path within 60 feet. They cannot injure anyone. Lasts a number of hours equal to the result, split among the figures if you wish. This does not deal damage."
-"I07","Illusion","The Long Lie of the Face","1d10","9","none","","","Willing creatures, up to a number equal to dots of Spell skill spent, wear other human faces and voices. Lasts a number of hours equal to the result, split if several are named, or until that person draws blood. This does not deal damage."
+"I05","Illusion","Casting Forth the False Room","1d8","7","none","","","The space you stand in, up to 5 feet per point of the Shred on a side, looks and sounds like a different place of the same size. Lasts a number of minutes equal to dots of Spell skill spent. Anyone who tests a surface with real force sees through it. This does not deal damage."
+"I06","Illusion","Phantasmal Watchman","1d8","7","none","","","False figures, a number up to dots of Spell skill spent, each walk a path within 60 feet. They cannot injure anyone. Lasts a number of hours equal to the Shred. split among the figures if you wish. This does not deal damage."
+"I07","Illusion","The Long Lie of the Face","1d10","9","none","","","Willing creatures, up to a number equal to dots of Spell skill spent, wear other human faces and voices. Lasts a number of hours equal to the Shred. split if several are named, or until that person draws blood. This does not deal damage."
 "I08","Illusion","The Inexorable Hour","1d12","12","Intellect, and only if you spent 8 or more dots of Spell skill","","","Hearers within 40 feet believe one hour of false memory that you state in a sentence or two. An impossible hour fails. The memory lasts until magic or miracle clears it. This does not deal damage."
-"I09","Illusion","Palace That Is Not","1d12","13","Intuition — only if they shove a wall or floor with full force","","","Lay a false interior over real space, up to 5 feet per point of the result on a side. It has sight, sound, smell, heat, and texture. None of it can injure. A painted fire does not burn. If someone puts their weight into a surface and Defies, they understand that the palace is hollow. Lasts a number of hours equal to dots of Spell skill spent."
-"I10","Illusion","The Long Masque of the City","1d20","18","none","","","Lay a false street, court, or quarter over real ground, up to 10 feet per point of the result on a side. It follows the same rules as Palace That Is Not. Lasts a number of hours equal to dots of Spell skill spent. Only magic or miracle ends it early."
+"I09","Illusion","Palace That Is Not","1d12","13","Intuition — only if they shove a wall or floor with full force","","","Lay a false interior over real space, up to 5 feet per point of the Shred on a side. It has sight, sound, smell, heat, and texture. None of it can injure. A painted fire does not burn. If someone puts their weight into a surface and Defies, they understand that the palace is hollow. Lasts a number of hours equal to dots of Spell skill spent."
+"I10","Illusion","The Long Masque of the City","1d20","18","none","","","Lay a false street, court, or quarter over real ground, up to 10 feet per point of the Shred on a side. It follows the same rules as Palace That Is Not. Lasts a number of hours equal to dots of Spell skill spent. Only magic or miracle ends it early."
 "I11","Illusion","The Footstep That Was Not","1d4","1","none","","","For a number of rounds equal to dots of Spell skill spent, your steps make no sound. A person who watches you walk still sees you. This does not deal damage."
-"I12","Illusion","Borrowed Shade","1d6","3","none","","","You, or one willing creature you touch, are easy to miss in dim light for a number of minutes equal to the result. Bright light, a shout, or an attack ends it. This does not deal damage."
+"I12","Illusion","Borrowed Shade","1d6","3","none","","","You, or one willing creature you touch, are easy to miss in dim light for a number of minutes equal to the Shred. Bright light, a shout, or an attack ends it. This does not deal damage."
 "I13","Illusion","The Unspent Coin","1d8","6","none","","","One object you touch, no larger than a chest, looks like another mundane object of similar size for a number of hours equal to dots of Spell skill spent. A person who handles it with intent learns the truth. This does not deal damage."
-"R01","Ritual Magic","The Seal of Amber","1d6","3","none","10 minutes, or one night if you name more than one body","A volunteer loses 4 Physical, or apprentices pay 10 stamina each.","Name willing or helpless bodies, up to your dots of Spell skill. They enter stasis: they do not age, they do not breathe, ordinary weapons do not bite, and they are light enough to carry. Lasts a number of hours equal to the result, split among the bodies if you wish. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina. This is a hold, not a restoration."
-"R02","Ritual Magic","The Amber Archive","1d6","4","none","8 hours","The original you will lose, and one of: 2 Physical of your blood, an apprentice's 15 stamina, or an old library.","The rite makes a crystal copy that ordinary fire, damp, and time will not eat. It lasts a number of years equal to the result. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
-"R03","Ritual Magic","Decree Upon the Weather","1d8","6","none","3 hours, or 8 hours if you want days instead of hours","Open sky, and a choir paying stamina or Physical bled from willing donors (8 Physical for the short clock, 15 for the long).","Set one weather, rain, clear sky, frost, or still air, in a radius of 50 feet per point of the result, or 100 feet per point on the long clock. It lasts a number of hours equal to dots of Spell skill spent, or a number of days equal to your dots of Spell skill on the long clock. Only magic or miracle clears it early. You cannot aim a bolt with this rite."
-"R04","Ritual Magic","Vallation of the Closed Horizon","1d8","7","none","1 hour, or dusk to dusk for a moon-long wall","Three payers into the working, or an ox, or an old stone circle. The long clock also needs a standing stone raised that night and a living well.","Raise a circuit 10 feet long per point of the result, or 20 feet per point on the long clock, and 12 feet high. When you finish, choose ablative Physical Deflect against Physical damage, lasting a number of hours equal to dots of Spell skill spent, or Magical Deflect against Spells: Attack and Spells: Elementalism, full value, lasting a number of rounds equal to dots of Spell skill spent. You may set Physical Deflect as Mental Deflect against Mental damage and mental maladies. An earth line must be dug. A creature crossing fire, water, or air takes Physical damage equal to the result, split among those who cross together. Only Magical Deflect against Spells: Elementalism stops that damage. If you chose an ablative pool, each discharge also eats the pool. The Living Well or The Vessel That Drinks may hitch to an ablative pool. The short clock ends at dawn if anything remains. The long clock ends at the next full moon if anything remains. Only magic or miracle ends it earlier."
-"R05","Ritual Magic","Rite of the Fed Servitor","1d8","7","none","4 hours","A corpse, and two apprentices paying stamina.","Raise one or more undead. Every 5 points of the result add +1 to every rating on that husk, or buy one special: fearless, silent tread, tireless grip, semblance of life, or armored bones. They last until the next new moon if fed 5 stamina each dusk. A hitched Living Well or Vessel That Drinks may pay that feed. Otherwise they last until you raise a new batch."
-"R06","Ritual Magic","Calculation of the High Servitor","1d20","16","none","6 hours","A beast or condemned body as clay, and four apprentices paying in, or a rare reagent.","You must spend at least 6 dots of Spell skill. One beast is made. Split the result equally across Physique, Strength, Constitution, Agility, Dexterity, Intellect, Intuition, Magic, Bravery, Willpower, Charisma, Attraction, Hide, Instinct, Base Damage, Movement, and the beast's Stamina. Drop the remainder. Feed it 5 stamina at dusk, or it lasts only until the new moon."
-"R07","Ritual Magic","Extirpate Arcana","1d10","9","Magic — only if the target working's caster has dots of Spell skill in a higher band than yours","10 minutes","Salt, iron, or running water on the site.","End one lasting magical effect you can see or touch, including a working that lasts until magic or miracle. The result must at least match the original working's result, or the original dots of Spell skill spent times 4 if that result is unknown."
-"R08","Ritual Magic","The Closed Sanctum","1d10","10","none","3 hours","Four walls and a roof, and two people paying stamina.","Ward one room or small house. Split the result between ablative Physical Deflect against Physical damage, lasting a number of hours equal to dots of Spell skill spent, and Magical Deflect against Spells: Illusion and information magic, full value, lasting a number of rounds equal to dots of Spell skill spent. You may set Physical Deflect as Mental Deflect against Mental damage and mental maladies. The Living Well or The Vessel That Drinks may hitch to the Physical Deflect pool only."
-"R09","Ritual Magic","Casting Forth the Far Voice","1d12","12","none","1 hour","A token the listener has touched.","Speak to one known living creature within a number of miles equal to the result. They hear you for a number of minutes equal to dots of Spell skill spent. You do not see them."
-"R10","Ritual Magic","Conjunction of the Standing Gate","1d20","18","none","dusk to dusk","Two prepared doorways, a living well, and 20 Physical from willing donors in total, or a dozen laborers paying 5 each.","Two marked doorways open onto each other. Anyone may pass. Give the result to the gate as ablative Physical Deflect against Physical damage from a smash, lasting a number of hours equal to dots of Spell skill spent, or as Magical Deflect against Spells: Transmutation, full value, lasting a number of rounds equal to dots of Spell skill spent. The gate lasts until that defense is gone, or until magic or miracle closes it. The Living Well or The Vessel That Drinks may hitch to an ablative setting."
+"R01","Ritual Magic","The Seal of Amber","1d6","3","none","10 minutes, or one night if you name more than one body","A volunteer loses 4 Physical, or apprentices pay 10 stamina each.","Name willing or helpless bodies, up to your dots of Spell skill. They enter stasis: they do not age, they do not breathe, ordinary weapons do not bite, and they are light enough to carry. Lasts a number of hours equal to the Shred. split among the bodies if you wish. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina. This is a hold, not a restoration."
+"R02","Ritual Magic","The Amber Archive","1d6","4","none","8 hours","The original you will lose, and one of: 2 Physical of your blood, an apprentice's 15 stamina, or an old library.","The rite makes a crystal copy that ordinary fire, damp, and time will not eat. It lasts a number of years equal to the Shred. Pay stamina across the clock. Roll when the clock finishes. If the clock breaks, a Magic check returns half of your stamina."
+"R03","Ritual Magic","Decree Upon the Weather","1d8","6","none","3 hours, or 8 hours if you want days instead of hours","Open sky, and a choir paying stamina or Physical bled from willing donors (8 Physical for the short clock, 15 for the long).","Set one weather, rain, clear sky, frost, or still air, in a radius of 50 feet per point of the Shred. or 100 feet per point on the long clock. It lasts a number of hours equal to dots of Spell skill spent, or a number of days equal to your dots of Spell skill on the long clock. Only magic or miracle clears it early. You cannot aim a bolt with this rite."
+"R04","Ritual Magic","Vallation of the Closed Horizon","1d8","7","none","1 hour, or dusk to dusk for a moon-long wall","Three payers into the working, or an ox, or an old stone circle. The long clock also needs a standing stone raised that night and a living well.","Raise a circuit 10 feet long per point of the Shred. or 20 feet per point on the long clock, and 12 feet high. When you finish, choose ablative Physical Deflect against Physical damage, lasting a number of hours equal to dots of Spell skill spent, or Magical Deflect against Spells: Attack and Spells: Elementalism, full value, lasting a number of rounds equal to dots of Spell skill spent. You may set Physical Deflect as Mental Deflect against Mental damage and mental maladies. An earth line must be dug. A creature crossing fire, water, or air takes Physical damage equal to the Shred. split among those who cross together. Only Magical Deflect against Spells: Elementalism stops that damage. If you chose an ablative pool, each discharge also eats the pool. The Living Well or The Vessel That Drinks may hitch to an ablative pool. The short clock ends at dawn if anything remains. The long clock ends at the next full moon if anything remains. Only magic or miracle ends it earlier."
+"R05","Ritual Magic","Rite of the Fed Servitor","1d8","7","none","4 hours","A corpse, and two apprentices paying stamina.","Raise one or more undead. Every 5 points of the Shred add +1 to every rating on that husk, or buy one special: fearless, silent tread, tireless grip, semblance of life, or armored bones. They last until the next new moon if fed 5 stamina each dusk. A hitched Living Well or Vessel That Drinks may pay that feed. Otherwise they last until you raise a new batch."
+"R06","Ritual Magic","Calculation of the High Servitor","1d20","16","none","6 hours","A beast or condemned body as clay, and four apprentices paying in, or a rare reagent.","You must spend at least 6 dots of Spell skill. One beast is made. Split the Shred equally across Physique, Strength, Constitution, Agility, Dexterity, Intellect, Intuition, Magic, Bravery, Willpower, Charisma, Attraction, Hide, Instinct, Base Damage, Movement, and the beast's Stamina. Drop the remainder. Feed it 5 stamina at dusk, or it lasts only until the new moon."
+"R07","Ritual Magic","Extirpate Arcana","1d10","9","Magic — only if the target working's caster has dots of Spell skill in a higher band than yours","10 minutes","Salt, iron, or running water on the site.","End one lasting magical effect you can see or touch, including a working that lasts until magic or miracle. The Shred must at least match the original working's Shred. or the original dots of Spell skill spent times 4 if that Shred is unknown."
+"R08","Ritual Magic","The Closed Sanctum","1d10","10","none","3 hours","Four walls and a roof, and two people paying stamina.","Ward one room or small house. Split the Shred between ablative Physical Deflect against Physical damage, lasting a number of hours equal to dots of Spell skill spent, and Magical Deflect against Spells: Illusion and information magic, full value, lasting a number of rounds equal to dots of Spell skill spent. You may set Physical Deflect as Mental Deflect against Mental damage and mental maladies. The Living Well or The Vessel That Drinks may hitch to the Physical Deflect pool only."
+"R09","Ritual Magic","Casting Forth the Far Voice","1d12","12","none","1 hour","A token the listener has touched.","Speak to one known living creature within a number of miles equal to the Shred. They hear you for a number of minutes equal to dots of Spell skill spent. You do not see them."
+"R10","Ritual Magic","Conjunction of the Standing Gate","1d20","18","none","dusk to dusk","Two prepared doorways, a living well, and 20 Physical from willing donors in total, or a dozen laborers paying 5 each.","Two marked doorways open onto each other. Anyone may pass. Give the Shred to the gate as ablative Physical Deflect against Physical damage from a smash, lasting a number of hours equal to dots of Spell skill spent, or as Magical Deflect against Spells: Transmutation, full value, lasting a number of rounds equal to dots of Spell skill spent. The gate lasts until that defense is gone, or until magic or miracle closes it. The Living Well or The Vessel That Drinks may hitch to an ablative setting."
 "R11","Ritual Magic","The Living Well","1d8","6","none. Unwilling targets do not opt out.","10 minutes","A bowl, pit, or marked stone, and at least one willing living creature. You may be that creature.","Name living creatures you can see or touch, up to one per dot of Spell skill. Willing and unwilling creatures both bind when the clock ends. An unwilling creature gets no Defy and cannot refuse. A willing creature names a stamina stake, up to what they have. An unwilling creature's stake is their current stamina in full. Hitch the well to one standing working that uses an ablative pool. Magical Deflect cannot drink a well. When the hitch is struck, drain bound stamina first. A body at 0 stamina stays bound, and further drain is Physical damage. Physical Deflect against Physical damage can reduce that damage. Magical Deflect cannot. Then the hitch's own pool is eaten, and then the hitch ends. An unwilling creature cannot leave. The well ends when any willing participant leaves or dies, when the hitch ends, when magic or miracle breaks this working, or when a body is bound to a new well. If the last willing participant dies to the well's own Physical damage, the well ends and the unwilling survivors are free. If the clock breaks, a Magic check returns half of the stamina you spent. No one is bound."
-"R12","Ritual Magic","The Vessel That Drinks","1d12","13","none. Unwilling targets do not opt out.","dusk to dusk","One finished object that will hold the working, such as a bowl, ring, stone, blade, or door-iron, and at least one willing living creature bound at the close. You may be that creature.","The object becomes a drinking vessel. It does nothing until you hitch it to an ablative pool. Magical Deflect cannot drink from this item. When the clock ends, name living creatures you can see or touch, up to one per dot of Spell skill, including the required willing body. They bind to the item. An unwilling creature gets no Defy and cannot refuse. A willing creature names how much stamina the item may take. An unwilling creature's stake is their current stamina in full. While the vessel is hitched, a blow drains stamina from the bound, then Physical damage from bodies at 0 stamina. Physical Deflect against Physical damage can reduce that damage. Then the hitch pool is eaten, and then the hitch ends. The item remains. You may hitch it again as a main action if a willing creature is still bound to it. Distance does not free anyone. An unwilling creature cannot leave. This item-working ends when any willing participant bound to the item leaves or dies. Magic, miracle, or destruction of the object frees everyone. The result is the hold: the most stamina, and then Physical damage, the item can pull in a single blow. Demand above the hold goes to the hitch pool. The object stays a vessel until magic, miracle, or destruction. Bindings last only while a willing participant remains bound. If the clock breaks, a Magic check returns half of the stamina you spent. The object is ordinary, and no one is bound."
-"R13","Ritual Magic","The Night-Seal","1d4","1","none","10 minutes","A marked door and a pinch of salt.","One door, hatch, or gate you touch will not open for anyone but you and a number of people you name equal to dots of Spell skill spent. It lasts a number of hours equal to the result. A working whose result beats this result may still force it. Pay stamina across the clock. If the clock breaks, a Magic check returns half of your stamina."`;
+"R12","Ritual Magic","The Vessel That Drinks","1d12","13","none. Unwilling targets do not opt out.","dusk to dusk","One finished object that will hold the working, such as a bowl, ring, stone, blade, or door-iron, and at least one willing living creature bound at the close. You may be that creature.","The object becomes a drinking vessel. It does nothing until you hitch it to an ablative pool. Magical Deflect cannot drink from this item. When the clock ends, name living creatures you can see or touch, up to one per dot of Spell skill, including the required willing body. They bind to the item. An unwilling creature gets no Defy and cannot refuse. A willing creature names how much stamina the item may take. An unwilling creature's stake is their current stamina in full. While the vessel is hitched, a blow drains stamina from the bound, then Physical damage from bodies at 0 stamina. Physical Deflect against Physical damage can reduce that damage. Then the hitch pool is eaten, and then the hitch ends. The item remains. You may hitch it again as a main action if a willing creature is still bound to it. Distance does not free anyone. An unwilling creature cannot leave. This item-working ends when any willing participant bound to the item leaves or dies. Magic, miracle, or destruction of the object frees everyone. The Shred is the hold: the most stamina, and then Physical damage, the item can pull in a single blow. Demand above the hold goes to the hitch pool. The object stays a vessel until magic, miracle, or destruction. Bindings last only while a willing participant remains bound. If the clock breaks, a Magic check returns half of the stamina you spent. The object is ordinary, and no one is bound."
+"R13","Ritual Magic","The Night-Seal","1d4","1","none","10 minutes","A marked door and a pinch of salt.","One door, hatch, or gate you touch will not open for anyone but you and a number of people you name equal to dots of Spell skill spent. It lasts a number of hours equal to the Shred. A working whose Shred beats this Shred may still force it. Pay stamina across the clock. If the clock breaks, a Magic check returns half of your stamina."`;
 
 const SPELLS = parseCsvWithHeader(FANTASY_SPELLS_CSV).map((r) => ({
   id: r.id,
@@ -1503,25 +1524,28 @@ const SPELLS = parseCsvWithHeader(FANTASY_SPELLS_CSV).map((r) => ({
   dotsRequired: Number(r['Dots Reqd']) || 0,
   defy: r.defy === 'none' ? '' : r.defy,
   clock: r.clock,
-  crutch: r.crutch,
+  components: r.Components,
   description: r.full_description,
 }));
 
 const SPELL_SCHOOLS = [...new Set(SPELLS.map((s) => s.school))].sort();
 
 // Spells aren't purchased with the shared class-point pool — instead every
-// Adept rank grants exactly one learnable-spell slot. Every spell is visible
-// once 1+ ranks are in Adept, regardless of current Focus, but only as many
-// can be *known* at once as Adept ranks allow. Magic itself is gated by the
-// character's independent magicEnabled toggle, not by genre — a player can
-// "genre-bend" magic onto any setting, or turn it off even in Fantasy.
+// rank in the current genre's spellcasting class (see getSpellcastingClass
+// — Mage in Fantasy, but genre-dependent) grants exactly one learnable-
+// spell slot. Every spell is visible once 1+ ranks are in that class,
+// regardless of current Focus, but only as many can be *known* at once as
+// those ranks allow. Magic itself is gated by the character's independent
+// magicEnabled toggle, not by genre — a player can "genre-bend" magic onto
+// any setting, or turn it off even in Fantasy.
 function hasSpellAccess(character) {
-  return character.magicEnabled && (character.classDots.Adept || 0) >= 1;
+  return character.magicEnabled && (character.classDots[getSpellcastingClass(character.genre)] || 0) >= 1;
 }
 
-// If the character owns the "Extra Spell" special, every Adept dot gained
-// after acquiring it grants an extra bonus slot on top of its normal one
-// (dots held before acquiring it don't retroactively grant the bonus).
+// If the character owns the "Extra Spell" special, every spellcasting-class
+// dot gained after acquiring it grants an extra bonus slot on top of its
+// normal one (dots held before acquiring it don't retroactively grant the
+// bonus).
 function getSpellSlotCountForRank(character, rank) {
   const extraSpell = SPECIALS.find((s) => s.name === 'Extra Spell');
   if (extraSpell && isSpecialOwned(character, extraSpell)) {
@@ -1532,7 +1556,7 @@ function getSpellSlotCountForRank(character, rank) {
 }
 
 function getSpellSlotCount(character) {
-  return getSpellSlotCountForRank(character, character.classDots.Adept || 0);
+  return getSpellSlotCountForRank(character, character.classDots[getSpellcastingClass(character.genre)] || 0);
 }
 
 function getSpellsLearnedCount(character) {
@@ -1546,7 +1570,7 @@ function getSpellsLearnedCount(character) {
 // blocked by this check.
 function meetsCastingDotsRequirement(character, entry, prefix) {
   if (!entry.dotsRequired) return true;
-  const skill = SKILLS.find((s) => s.name === `${prefix}: ${entry.school}`);
+  const skill = ALL_SKILLS.find((s) => s.name === `${prefix}: ${entry.school}`);
   if (!skill) return true;
   return getSkillEffectiveRank(character, skill) >= entry.dotsRequired;
 }
@@ -1575,7 +1599,7 @@ function toggleSpellLearned(character, spell) {
 // learned/not-learned toggle per entry (no point cost).
 // ---------------------------------------------------------------------------
 
-const FANTASY_MIRACLE_CSV = `"id","school","name","cost","Dots Reqd","defy","clock","crutch","full_description"
+const FANTASY_MIRACLE_CSV = `"id","school","name","cost","Dots Reqd","defy","clock","Components","full_description"
 "PN01","Necromancy","Last Office of the Dead","1d4","1","none","","","Touch a corpse. Decay pauses, and vermin leave the cloth. The body cannot be raised by any working cheaper than 1d8 until this office ends. It lasts a number of days equal to the result. Only magic or miracle ends it early."
 "PN02","Necromancy","Query the Consecrated Skull","1d4","1","none","","","Touch a corpse dead no more than a number of days equal to the result, if it has received some rite of rest, even a hurried one. It answers a number of short, literal questions equal to dots of Miracle skill spent. The same corpse will not do this twice. The answers tend toward what the dead believed at the end."
 "PN03","Necromancy","Smite the Unquiet","1d6","3","none","","","A pale shock strikes a point within 80 feet and fills a 20-foot radius. Split Physical damage equal to the result among undead only. Living creatures are untouched. Only Magical Deflect against Miracles: Necromancy, or against Spells: Necromancy, reduces this. You may instead deal Mental damage."
@@ -1677,23 +1701,25 @@ const MIRACLES = parseCsvWithHeader(FANTASY_MIRACLE_CSV).map((r) => ({
   dotsRequired: Number(r['Dots Reqd']) || 0,
   defy: r.defy === 'none' ? '' : r.defy,
   clock: r.clock,
-  crutch: r.crutch,
+  components: r.Components,
   description: r.full_description,
 }));
 
 const MIRACLE_SCHOOLS = [...new Set(MIRACLES.map((s) => s.school))].sort();
 
 // Miracles aren't purchased with the shared class-point pool — instead every
-// Shepherd rank grants exactly one learnable-miracle slot. Every miracle is
-// visible once 1+ ranks are in Shepherd, regardless of current Focus, but only
-// as many can be *known* at once as Shepherd ranks allow. Gated by the same
+// rank in the current genre's miraclecasting class (see
+// getMiraclecastingClass — Cleric in Fantasy, but genre-dependent) grants
+// exactly one learnable-miracle slot. Every miracle is visible once 1+
+// ranks are in that class, regardless of current Focus, but only as many
+// can be *known* at once as those ranks allow. Gated by the same
 // magicEnabled toggle as Spells — see hasSpellAccess.
 function hasMiracleAccess(character) {
-  return character.magicEnabled && (character.classDots.Shepherd || 0) >= 1;
+  return character.magicEnabled && (character.classDots[getMiraclecastingClass(character.genre)] || 0) >= 1;
 }
 
 // Same bonus mechanic as getSpellSlotCountForRank above, but for the
-// "Blessing of Miracles" special and Shepherd dots.
+// "Blessing of Miracles" special and the miraclecasting class's dots.
 function getMiracleSlotCountForRank(character, rank) {
   const blessing = SPECIALS.find((s) => s.name === 'Blessing of Miracles');
   if (blessing && isSpecialOwned(character, blessing)) {
@@ -1704,7 +1730,7 @@ function getMiracleSlotCountForRank(character, rank) {
 }
 
 function getMiracleSlotCount(character) {
-  return getMiracleSlotCountForRank(character, character.classDots.Shepherd || 0);
+  return getMiracleSlotCountForRank(character, character.classDots[getMiraclecastingClass(character.genre)] || 0);
 }
 
 function getMiraclesLearnedCount(character) {
@@ -3527,8 +3553,8 @@ function refundToCoinage(character, valueGT) {
 // Weapon skills and (non-Spell/Miracle) Skills spend from two SEPARATE
 // per-class pools now, not one shared pool. A Adept/Shepherd "Spell: X" or
 // "Miracle: X" Skill entry counts as a Weapon skill for this split (it still
-// lives in the SKILLS array and the skillSpend ledger — only which pool
-// pays for it changes).
+// lives in ALL_SKILLS and the skillSpend ledger — only which pool pays for
+// it changes).
 function isWeaponSkillEntry(skill) {
   return /^Spell:|^Miracle:/.test(skill.name);
 }
@@ -3540,7 +3566,7 @@ function getClassRankMultiplier(character) {
 }
 
 function getClassWeaponPointsUsed(character, cls) {
-  const spellSkillUsed = SKILLS.filter(isWeaponSkillEntry)
+  const spellSkillUsed = ALL_SKILLS.filter(isWeaponSkillEntry)
     .reduce((sum, skill) => sum + getSkillClassSpend(character, skill, cls), 0);
   const meleeUsed = MELEE_WEAPONS.reduce((sum, w) => sum + getWeaponClassSpend(character, 'melee', w.name, cls), 0);
   const rangedUsed = RANGED_WEAPONS.reduce((sum, w) => sum + getWeaponClassSpend(character, 'ranged', w.name, cls), 0);
@@ -3551,7 +3577,7 @@ function getClassWeaponPointsUsed(character, cls) {
 // Spell/Miracle Skill) — still capped by tier count above regardless of
 // points available, same as before.
 function getClassSkillPointsUsed(character, cls) {
-  const skillUsed = SKILLS.filter((s) => !isWeaponSkillEntry(s))
+  const skillUsed = ALL_SKILLS.filter((s) => !isWeaponSkillEntry(s))
     .reduce((sum, skill) => sum + getSkillClassSpend(character, skill, cls), 0);
   const specialUsed = SPECIALS.reduce((sum, special) => sum + getSpecialClassSpend(character, special, cls), 0);
   return skillUsed + specialUsed;
@@ -3581,25 +3607,18 @@ function getSkillPointsAvailable(character, skill, cls) {
     : getClassSkillPointsAvailable(character, cls);
 }
 
-// True while ANY class still has an unspent Weapon or Skill dot anywhere —
-// gates buying another class dot in ANY class (see toggleClassDot) until
-// every dot already granted has been spent.
-function hasUnspentClassDots(character) {
-  return Object.keys(character.classDots).some((cls) => getClassWeaponPointsAvailable(character, cls) > 0
-    || getClassSkillPointsAvailable(character, cls) > 0);
-}
-
 // A class dot can only ever be bought one rank at a time — never jump
-// multiple ranks in one click — because the Weapon dot and Skill dot(s)
-// granted by each rank must be fully spent (in ANY class) before the next
-// rank, anywhere, becomes available at all. Decrementing (refunding) still
-// allows a multi-rank jump, but never below the rank needed to cover what's
-// already been spent from either of this class's two pools.
+// multiple ranks in one click. Unlike before, buying a rank in one
+// Expertise no longer requires spending the Weapon/Skill dots already
+// granted by other Expertises first — dots can be freely accumulated
+// across any number of Expertises and spent whenever. Decrementing
+// (refunding) still allows a multi-rank jump, but never below the rank
+// needed to cover what's already been spent from either of this class's
+// two pools.
 function setClassDotsForClass(character, cls, targetRank) {
   const current = character.classDots[cls];
   const clampedTarget = clamp(targetRank, CLASS_DOTS_MIN, CLASS_DOTS_MAX);
   if (clampedTarget > current) {
-    if (hasUnspentClassDots(character)) return;
     character.classDots[cls] = Math.min(clampedTarget, current + 1);
     return;
   }
@@ -3684,7 +3703,7 @@ const CASTING_STAT_GROUP = {
   stats: [
     {
       id: 'magicCasting',
-      name: 'Magic Casting',
+      name: 'Spell Casting',
       formulaText: 'class_magic_focus_bonus + avg(Mysticism, Intellect, Willpower, Dexterity)',
       formula: getMagicCasting,
       // Only meaningful when Magic is enabled — see renderCombatStats().
@@ -3702,6 +3721,7 @@ const CASTING_STAT_GROUP = {
       name: 'Psychic Ability',
       formulaText: 'Willpower + avg(Willpower, Intellect, Intuition)',
       formula: getPsychicAbility,
+      requiresPsychic: true,
     },
   ],
 };
@@ -3722,27 +3742,27 @@ const VITALS_STATS = [
   {
     id: 'physicalDamage',
     name: 'Physical Damage',
-    formulaText: '(Physique + Strength + Constitution) / 2 * (focus_mod + race_pd_mult) * total class ranks',
+    formulaText: '(Physique + Strength + Constitution) / 2 * (focus_mod + race_pd_mult) + total class ranks',
     formula: (c) => {
       const race = RACES[c.race];
       const sum = getEffectiveAttribute(c, 'Physique') + getEffectiveAttribute(c, 'Strength')
         + getEffectiveAttribute(c, 'Constitution');
       const focusMod = getExpertiseEntry(c.genre, c.focus).vitalsPdMod;
       const dots = getTotalClassDots(c);
-      return roundUp((sum / 2) * (focusMod + race.race_pd_mult) * dots);
+      return roundUp((sum / 2) * (focusMod + race.race_pd_mult) + dots);
     },
   },
   {
     id: 'mentalDamage',
     name: 'Mental Damage',
-    formulaText: '(Intellect + Willpower + Constitution) / 2 * (focus_mod + race_md_mult) * total class ranks',
+    formulaText: '(Intellect + Willpower + Constitution) / 2 * (focus_mod + race_md_mult) + total class ranks',
     formula: (c) => {
       const race = RACES[c.race];
       const sum = getEffectiveAttribute(c, 'Intellect') + getEffectiveAttribute(c, 'Willpower')
         + getEffectiveAttribute(c, 'Constitution');
       const focusMod = getExpertiseEntry(c.genre, c.focus).vitalsMdMod;
       const dots = getTotalClassDots(c);
-      return roundUp((sum / 2) * (focusMod + race.race_md_mult) * dots);
+      return roundUp((sum / 2) * (focusMod + race.race_md_mult) + dots);
     },
   },
   {
@@ -3753,17 +3773,6 @@ const VITALS_STATS = [
       const race = RACES[c.race];
       return roundUp(getEffectiveAttribute(c, 'Strength') + getEffectiveAttribute(c, 'Agility')
         + getEffectiveAttribute(c, 'Constitution') + race.moveModifier);
-    },
-  },
-  {
-    id: 'initiative',
-    name: 'Initiative',
-    formulaText: '(Agility + Intellect + Intuition + Bravery) / 4 + (5 * Covert ranks) + (3 * Martial ranks) + race_init_mod',
-    formula: (c) => {
-      const race = RACES[c.race];
-      const sum = getEffectiveAttribute(c, 'Agility') + getEffectiveAttribute(c, 'Intellect')
-        + getEffectiveAttribute(c, 'Intuition') + getEffectiveAttribute(c, 'Bravery');
-      return roundUp((sum / 4) + (5 * c.classDots.Covert) + (3 * c.classDots.Martial) + race.race_init_mod);
     },
   },
   {
@@ -3910,7 +3919,6 @@ function createDefaultCharacter() {
       stamina: { magic: 0, misc: 0 },
       physicalDamage: { magic: 0, misc: 0 },
       mentalDamage: { magic: 0, misc: 0 },
-      initiative: { magic: 0, misc: 0 },
       staminaRecovery: { magic: 0, misc: 0 },
       movement: { magic: 0, misc: 0 },
       staminaCost: staminaCost,
@@ -3978,14 +3986,21 @@ function applyGameSet(gameSet) {
     const expertiseText = files[`${prefix}_expertise.csv`];
     if (expertiseText != null) replaceArrayContents(GENRE_EXPERTISE[genre], parseExpertiseCsv(expertiseText));
 
-    // Fantasy's Skills/Melee/Ranged baseline files aren't genre-prefixed
-    // (fantasy_skills.csv is the Spell:/Miracle: add-on, not the baseline;
-    // melee_weapons.csv/ranged_weapons.csv ARE the shared baseline every
+    // Fantasy's Melee/Ranged baseline files aren't genre-prefixed
+    // (melee_weapons.csv/ranged_weapons.csv ARE the shared baseline every
     // genre gets for free) — every other genre follows the generic
     // {genre}_X.csv pattern and lands in its own GENRE_X[genre] slot.
+    // fantasy_skills.csv is NOT a shared baseline (that's retired) — it's
+    // Fantasy's own complete list, split the same way as at module load:
+    // Spell:/Miracle: rows go to FANTASY_SKILLS (magic, cross-genre-gated),
+    // everything else to GENRE_SKILLS.Fantasy.
     if (genre === 'Fantasy') {
       const fantasySkillsText = files['fantasy_skills.csv'];
-      if (fantasySkillsText != null) replaceArrayContents(FANTASY_SKILLS, parseSkillsCsv(fantasySkillsText));
+      if (fantasySkillsText != null) {
+        const allFantasySkills = parseSkillsCsv(fantasySkillsText);
+        replaceArrayContents(FANTASY_SKILLS, allFantasySkills.filter((s) => /^Spell:|^Miracle:/.test(s.name)));
+        replaceArrayContents(GENRE_SKILLS.Fantasy, allFantasySkills.filter((s) => !/^Spell:|^Miracle:/.test(s.name)));
+      }
       const meleeText = files['melee_weapons.csv'];
       if (meleeText != null) replaceArrayContents(MELEE_WEAPONS, parseMeleeWeaponsCsv(meleeText));
       const rangedText = files['ranged_weapons.csv'];
@@ -4034,7 +4049,7 @@ function applyGameSet(gameSet) {
       id: r.id, school: r.school, name: r.name, cost: r.cost,
       dotsRequired: Number(r['Dots Reqd']) || 0,
       defy: r.defy === 'none' ? '' : r.defy,
-      clock: r.clock, crutch: r.crutch, description: r.full_description,
+      clock: r.clock, components: r.Components, description: r.full_description,
     })));
   }
   if (files['fantasy_miracles.csv'] != null) {
@@ -4042,7 +4057,7 @@ function applyGameSet(gameSet) {
       id: r.id, school: r.school, name: r.name, cost: r.cost,
       dotsRequired: Number(r['Dots Reqd']) || 0,
       defy: r.defy === 'none' ? '' : r.defy,
-      clock: r.clock, crutch: r.crutch, description: r.full_description,
+      clock: r.clock, components: r.Components, description: r.full_description,
     })));
   }
   // Each Psychic tier file is cumulative (TL9+ already contains TL6-8's
@@ -4063,7 +4078,10 @@ function applyGameSet(gameSet) {
   const nonFantasyGenres = genres.filter((g) => g !== 'Fantasy');
   replaceArrayContents(ALL_MELEE_WEAPONS, MELEE_WEAPONS.concat(...nonFantasyGenres.map((g) => GENRE_MELEE_WEAPONS[g] || [])));
   replaceArrayContents(ALL_RANGED_WEAPONS, RANGED_WEAPONS.concat(...nonFantasyGenres.map((g) => GENRE_RANGED_WEAPONS[g] || [])));
-  replaceArrayContents(ALL_SKILLS, SKILLS.concat(FANTASY_SKILLS, ...nonFantasyGenres.map((g) => GENRE_SKILLS[g] || []), PSYCHIC_POWERS));
+  // Every genre's own full list, Fantasy included (GENRE_SKILLS.Fantasy
+  // isn't excluded here any more — data/skills.csv is retired, so there's
+  // no separate baseline to avoid double-counting against).
+  replaceArrayContents(ALL_SKILLS, [].concat(...genres.map((g) => GENRE_SKILLS[g] || []), FANTASY_SKILLS, PSYCHIC_POWERS));
   replaceArrayContents(SPELL_SCHOOLS, [...new Set(SPELLS.map((s) => s.school))].sort());
   replaceArrayContents(MIRACLE_SCHOOLS, [...new Set(MIRACLES.map((s) => s.school))].sort());
   replaceArrayContents(EQUIPMENT_TYPES, [...new Set(EQUIPMENT.map((e) => e.type))]);
@@ -4072,7 +4090,7 @@ function applyGameSet(gameSet) {
 window.VennRPG = {
   ATTRIBUTES, ATTRIBUTE_MIN, ATTRIBUTE_MAX,
   CLASSES, getActiveClasses, CLASS_DOTS_MIN, CLASS_DOTS_MAX, CLASS_DOTS_ROWS, CLASS_DOTS_PER_ROW,
-  GENRE_EXPERTISE, getActiveExpertise, getExpertiseEntry, getDefyPercent, getDefyValue,
+  GENRE_EXPERTISE, getActiveExpertise, getExpertiseEntry, getSpellcastingClass, getMiraclecastingClass, getDefyPercent, getDefyValue,
   GENRES, TECH_LEVELS, parseTechLevels, getAvailableTechLevels, getDefaultTechLevel, resolveCatalogGenre, applyGameSet,
   RACES, RACE_NAMES, getRaceNamesForGenre, getRaceAttributeMod, getEffectiveAttribute, getAverageEffectiveAttribute,
   MELEE_WEAPONS, RANGED_WEAPONS, getActiveMeleeWeapons, getActiveRangedWeapons, ALL_MELEE_WEAPONS, ALL_RANGED_WEAPONS,
@@ -4081,9 +4099,9 @@ window.VennRPG = {
   rollFocusWeapons, addFocusWeapon, removeFocusWeapon,
   isWeaponEligibleForClass, weaponMatchesCharacter, getWeaponRate, getWeaponAutoMinRank,
   getWeaponClassSpend, getWeaponSpentRank, getWeaponEffectiveRank, getWeaponTarget, toggleWeaponRankForClass,
-  SKILLS, PSYCHIC_POWERS, SKILL_RANKS_MIN, SKILL_RANKS_MAX, SKILL_RANKS_ROWS, SKILL_RANKS_PER_ROW,
+  PSYCHIC_POWERS, SKILL_RANKS_MIN, SKILL_RANKS_MAX, SKILL_RANKS_ROWS, SKILL_RANKS_PER_ROW,
   FANTASY_SKILLS, getActiveSkills, ALL_SKILLS,
-  isSkillEligibleForClass, isSkillGeneral, isSkillForRace, pickSpendableClass,
+  isSkillEligibleForClass, isSkillGeneral, isSkillForRace, pickSpendableClass, pickSpendableClassForTab,
   skillMatchesCharacter, getSkillRate, getSkillAutoMinRank,
   getSkillClassSpend, getSkillSpentRank, getSkillEffectiveRank, getSkillTarget, toggleSkillRankForClass,
   SPECIALS, isSpecialEligible, getSpecialClassSpend, getSpecialSpentRank, isSpecialOwned, toggleSpecialForClass,
@@ -4097,7 +4115,7 @@ window.VennRPG = {
   getClassWeaponPointsUsed, getClassSkillPointsUsed,
   getClassWeaponPointsTotal, getClassSkillPointsTotal,
   getClassWeaponPointsAvailable, getClassSkillPointsAvailable,
-  getSkillPointsAvailable, hasUnspentClassDots, setClassDotsForClass,
+  getSkillPointsAvailable, setClassDotsForClass,
   MULTI_VALUE_DELIMITER, parseMultiValue,
   COMBAT_STAT_GROUP, getMeleeBaseAttack, getRangedBaseAttack, getBaseDefense,
   CASTING_STAT_GROUP, getMagicCasting, getMiracleCasting, getPsychicAbility, VITALS_STATS,
